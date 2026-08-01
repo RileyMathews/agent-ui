@@ -78,6 +78,13 @@
 			});
 		}
 
+		function focusTerminal() {
+			if (!terminal) return;
+			terminal.focus();
+			terminal.textarea?.focus();
+			setTimeout(() => terminal?.textarea?.focus(), 0);
+		}
+
 		function syncSize(cols: number, rows: number) {
 			if (lastSize?.cols === cols && lastSize.rows === rows) return;
 			const send = () => {
@@ -258,7 +265,7 @@
 				subscriptions.push(terminal.onData((data) => {
 					if (socket?.readyState === WebSocket.OPEN) socket.send(data);
 				}));
-				const focus = () => terminal?.focus();
+				const focus = () => focusTerminal();
 				const copy = (event: ClipboardEvent) => {
 					const selection = terminal?.getSelection();
 					if (!selection || !event.clipboardData) return;
@@ -279,7 +286,7 @@
 				subscriptions.push({ dispose: () => container.removeEventListener('paste', paste, true) });
 				if (document.fonts) void document.fonts.ready.then(scheduleFit);
 				window.addEventListener('resize', scheduleFit);
-				terminal.focus();
+				focusTerminal();
 				syncSize(terminal.cols, terminal.rows);
 				await connect();
 			} catch (cause) {
