@@ -34,6 +34,32 @@
 		return parts.filter((part): part is ToolPart => part.type === 'tool');
 	}
 
+	function subAgentParts(parts: ToolPart[]) {
+		return parts.filter((part) => part.tool === 'task');
+	}
+
+	function otherToolParts(parts: ToolPart[]) {
+		return parts.filter((part) => part.tool !== 'task');
+	}
+
+	function stringInput(part: ToolPart, key: string) {
+		const value = part.state.input[key];
+		return typeof value === 'string' ? value : undefined;
+	}
+
+	function subAgentTitle(part: ToolPart) {
+		return (part.state.status === 'running' || part.state.status === 'completed') && part.state.title
+			? part.state.title
+			: stringInput(part, 'description') ?? 'Sub-agent task';
+	}
+
+	function subAgentStatus(part: ToolPart) {
+		if (part.state.status === 'pending') return 'Queued';
+		if (part.state.status === 'running') return 'Running';
+		if (part.state.status === 'completed') return 'Finished';
+		return 'Failed';
+	}
+
 	function modelOptionValue(providerID: string, modelID: string) {
 		return JSON.stringify({ providerID, modelID });
 	}
@@ -281,12 +307,40 @@
 			{#each messages as message (message.info.id)}
 				{@const text = textParts(message.parts)}
 				{@const tools = toolParts(message.parts)}
+				{@const subAgents = subAgentParts(tools)}
+				{@const otherTools = otherToolParts(tools)}
 				<article class:user={message.info.role === 'user'}>
 					{#each text as part (part.id)}
 						<p class="message-text">{part.text}</p>
 					{/each}
-					{#if tools.length > 0}
-						<p class="tools">{tools.map((part) => part.tool).join(' · ')}</p>
+					{#if subAgents.length > 0}
+						<div class="sub-agents" aria-label="Sub-agents">
+							{#each subAgents as part (part.id)}
+								<div class:running={part.state.status === 'running'} class:error-state={part.state.status === 'error'} class="sub-agent">
+									<div class="agent-mark" aria-hidden="true">
+										{#if part.state.status === 'running'}
+											<span class="agent-spinner"></span>
+										{:else if part.state.status === 'completed'}
+											<span class="agent-check">✓</span>
+										{:else if part.state.status === 'error'}
+											<span class="agent-error">!</span>
+										{:else}
+											<span class="agent-dot"></span>
+										{/if}
+									</div>
+									<div class="agent-detail">
+										<div class="agent-heading">
+											<strong>{subAgentTitle(part)}</strong>
+											<span class="agent-status">{subAgentStatus(part)}</span>
+										</div>
+										<p>{stringInput(part, 'subagent_type') ?? 'agent'}</p>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+					{#if otherTools.length > 0}
+						<p class="tools">{otherTools.map((part) => part.tool).join(' · ')}</p>
 					{/if}
 					{#if text.length === 0 && tools.length === 0}
 						<p class="empty">No displayable content.</p>
@@ -340,6 +394,22 @@
 	article.user { justify-self: end; max-width: 90%; padding: 0.9rem 1rem; border-radius: 1.25rem 1.25rem 0.25rem; background: #1677e8; color: #fff; }
 	.message-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
 	.message-text + .message-text { margin-top: 0.75rem; }
+	.sub-agents { display: grid; gap: 0.5rem; margin-top: 0.85rem; }
+	.sub-agent { display: flex; align-items: center; gap: 0.75rem; min-width: 0; padding: 0.75rem 0.8rem; border: 1px solid #303839; border-radius: 0.8rem; background: linear-gradient(135deg, #1d2224, #181c1e); box-shadow: 0 1px 0 rgb(255 255 255 / 0.035) inset; }
+	.sub-agent.running { border-color: #3e645a; background: linear-gradient(135deg, #1d2927, #181e1e); }
+	.sub-agent.error-state { border-color: #603638; }
+	.agent-mark { display: grid; flex: 0 0 auto; width: 1.9rem; height: 1.9rem; place-items: center; border: 1px solid #3c4746; border-radius: 0.6rem; background: #121617; color: #79ddc0; }
+	.agent-spinner { width: 0.85rem; height: 0.85rem; border: 2px solid #3d5c54; border-top-color: #79ddc0; border-radius: 50%; animation: spin 0.8s linear infinite; }
+	.agent-check, .agent-error { font-size: 0.85rem; font-weight: 800; }
+	.agent-error { color: #ff9c9f; }
+	.agent-dot { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: #71807e; }
+	.agent-detail { min-width: 0; flex: 1; }
+	.agent-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; }
+	.agent-heading strong { min-width: 0; color: #edf2f1; font-size: 0.82rem; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+	.agent-status { flex: 0 0 auto; color: #8e9a98; font-size: 0.65rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
+	.running .agent-status { color: #79ddc0; }
+	.error-state .agent-status { color: #ff9c9f; }
+	.agent-detail p { margin: 0.2rem 0 0; color: #74817f; font-family: ui-monospace, monospace; font-size: 0.68rem; }
 	.tools { margin: 0.9rem 0 0; color: #9ca9a7; font-family: ui-monospace, monospace; font-size: 0.75rem; overflow-wrap: anywhere; }
 	.user .tools { color: #d9ecff; }
 	.empty { margin: 0; color: #788382; font-style: italic; }
@@ -347,7 +417,7 @@
 	.composer:not(.active):not(:focus-within) { transform: translate(-50%, calc(100% - 4.75rem)); }
 	.composer:focus-within, .composer.active { transform: translate(-50%, 0); }
 	@keyframes spin { to { transform: rotate(360deg); } }
-	@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.8s; } .composer { transition: none; } }
+	@media (prefers-reduced-motion: reduce) { .spinner, .agent-spinner { animation-duration: 1.8s; } .composer { transition: none; } }
 
 	@media (min-width: 40rem) {
 		main { padding-right: 1.5rem; padding-left: 1.5rem; }
