@@ -80,9 +80,13 @@
 
 		function focusTerminal() {
 			if (!terminal) return;
-			terminal.focus();
-			terminal.textarea?.focus();
-			setTimeout(() => terminal?.textarea?.focus(), 0);
+			const input = terminal.textarea;
+			if (!input) {
+				terminal.focus();
+				return;
+			}
+			input.focus({ preventScroll: true });
+			setTimeout(() => terminal?.textarea?.focus({ preventScroll: true }), 0);
 		}
 
 		function syncSize(cols: number, rows: number) {
@@ -259,6 +263,7 @@
 				fit = new loaded.mod.FitAddon();
 				terminal.loadAddon(fit);
 				terminal.open(container);
+				if (terminal.textarea) terminal.textarea.style.position = 'fixed';
 				fit.fit();
 				fit.observeResize();
 				subscriptions.push(terminal.onResize(({ cols, rows }) => syncSize(cols, rows)));
