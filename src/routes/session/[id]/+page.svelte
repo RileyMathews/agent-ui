@@ -1,15 +1,30 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import type { Part, SessionMessagesResponse, TextPart, ToolPart } from '@opencode-ai/sdk/client';
-	import { opencode } from '$lib/opencode';
+	import type { Event, Part, SessionMessagesResponse, TextPart, ToolPart } from '@opencode-ai/sdk/client';
+	import type { Agent, AppAgentsResponse, Provider, ProviderListResponse, Session } from '@opencode-ai/sdk/v2/client';
+	import { opencode, opencodeV2 } from '$lib/opencode';
+	import PromptComposer from '$lib/PromptComposer.svelte';
+	import ChatOptions from '$lib/ChatOptions.svelte';
 
 	type HistoryMessage = SessionMessagesResponse[number];
+	type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'offline';
 
 	const sessionID = page.params.id;
 	let messages = $state<HistoryMessage[]>([]);
 	let error = $state<string | null>(null);
 	let loading = $state(true);
+	let connectionState = $state<ConnectionState>('connecting');
+	let directory = $state<string | undefined>();
+	let prompt = $state('');
+	let submitting = $state(false);
+	let promptError = $state<string | null>(null);
+	let providers = $state<Provider[]>([]);
+	let agents = $state<Agent[]>([]);
+	let modelValue = $state('');
+	let agent = $state('');
+	let variant = $state('');
+	let optionsLoading = $state(true);
 
 	function textParts(parts: Part[]): TextPart[] {
 		return parts.filter((part): part is TextPart => part.type === 'text' && !part.ignored);
@@ -19,21 +34,220 @@
 		return parts.filter((part): part is ToolPart => part.type === 'tool');
 	}
 
-	onMount(async () => {
-		if (!sessionID) {
-			error = 'The session ID is missing.';
-			loading = false;
+	function modelOptionValue(providerID: string, modelID: string) {
+		return JSON.stringify({ providerID, modelID });
+	}
+
+	async function submitFollowUp(event: SubmitEvent) {
+		event.preventDefault();
+		if (!sessionID || !directory || !modelValue || !agent || !prompt.trim() || submitting) return;
+
+		submitting = true;
+		promptError = null;
+		try {
+			const model = JSON.parse(modelValue) as { providerID: string; modelID: string };
+			await opencodeV2.session.promptAsync({
+				sessionID,
+				directory,
+				model,
+				agent,
+				variant: variant || undefined,
+				parts: [{ type: 'text', text: prompt.trim() }]
+			});
+			prompt = '';
+		} catch (cause) {
+			promptError = cause instanceof Error ? cause.message : 'Unable to send the follow-up.';
+		} finally {
+			submitting = false;
+		}
+	}
+
+	function applyEvent(event: Event) {
+		if (event.type === 'message.updated' && event.properties.info.sessionID === sessionID) {
+			const index = messages.findIndex((message) => message.info.id === event.properties.info.id);
+			if (index === -1) {
+				messages = [...messages, { info: event.properties.info, parts: [] }];
+				return;
+			}
+
+			messages = messages.map((message, messageIndex) =>
+				messageIndex === index ? { ...message, info: event.properties.info } : message
+			);
 			return;
 		}
 
-		try {
-			// The generated SDK types do not preserve the client's responseStyle setting.
-			messages = (await opencode.session.messages({ path: { id: sessionID } })) as unknown as HistoryMessage[];
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Unable to load session history.';
-		} finally {
-			loading = false;
+		if (event.type === 'message.removed' && event.properties.sessionID === sessionID) {
+			messages = messages.filter((message) => message.info.id !== event.properties.messageID);
+			return;
 		}
+
+		if (event.type === 'message.part.updated' && event.properties.part.sessionID === sessionID) {
+			const part = event.properties.part;
+			messages = messages.map((message) => {
+				if (message.info.id !== part.messageID) return message;
+				const index = message.parts.findIndex((candidate) => candidate.id === part.id);
+				const parts = index === -1
+					? [...message.parts, part]
+					: message.parts.map((candidate, partIndex) => partIndex === index ? part : candidate);
+				return { ...message, parts };
+			});
+			return;
+		}
+
+		if (event.type === 'message.part.removed' && event.properties.sessionID === sessionID) {
+			messages = messages.map((message) =>
+				message.info.id === event.properties.messageID
+					? { ...message, parts: message.parts.filter((part) => part.id !== event.properties.partID) }
+					: message
+			);
+		}
+	}
+
+	onMount(() => {
+		const id = sessionID ?? '';
+		if (!id) {
+			error = 'The session ID is missing.';
+			loading = false;
+			return undefined;
+		}
+
+		let controller: AbortController | undefined;
+		let everConnected = false;
+		let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+		let disposed = false;
+
+		async function refreshMessages() {
+			try {
+				// The generated SDK types do not preserve the client's responseStyle setting.
+				messages = (await opencode.session.messages({
+					path: { id },
+					query: directory ? { directory } : undefined
+				})) as unknown as HistoryMessage[];
+				error = null;
+			} catch (cause) {
+				if (!disposed) error = cause instanceof Error ? cause.message : 'Unable to load session history.';
+			} finally {
+				if (!disposed) loading = false;
+			}
+		}
+
+		function connect() {
+			if (disposed || document.hidden) return;
+			if (reconnectTimer) clearTimeout(reconnectTimer);
+			controller?.abort();
+			controller = new AbortController();
+			connectionState = navigator.onLine ? (everConnected ? 'reconnecting' : 'connecting') : 'offline';
+			if (!navigator.onLine) return;
+
+			const activeController = controller;
+			void (async () => {
+				try {
+					const events = await opencode.event.subscribe({
+						query: directory ? { directory } : undefined,
+						signal: activeController.signal,
+						sseDefaultRetryDelay: 1000,
+						sseMaxRetryDelay: 15000,
+						onSseError: () => {
+							if (!activeController.signal.aborted) connectionState = navigator.onLine ? 'reconnecting' : 'offline';
+						}
+					});
+
+					for await (const event of events.stream) {
+						if (activeController.signal.aborted || disposed) return;
+						if (connectionState !== 'connected') {
+							connectionState = 'connected';
+							everConnected = true;
+							void refreshMessages();
+						}
+						applyEvent(event);
+					}
+				} catch {
+					if (!activeController.signal.aborted) connectionState = navigator.onLine ? 'reconnecting' : 'offline';
+				}
+
+				if (!activeController.signal.aborted && !disposed) {
+					reconnectTimer = setTimeout(connect, 1000);
+				}
+			})();
+		}
+
+		async function initialize() {
+			try {
+				const session = (await opencode.session.get({ path: { id } })) as unknown as { directory: string };
+				directory = session.directory;
+			} catch {
+				// The history request below provides the user-facing error and can recover on reconnect.
+			}
+			await refreshMessages();
+			connect();
+
+			if (!directory) {
+				optionsLoading = false;
+				return;
+			}
+
+			try {
+				const [providerResponse, agentResponse, session] = await Promise.all([
+					opencodeV2.provider.list({ directory }) as unknown as Promise<ProviderListResponse>,
+					opencodeV2.app.agents({ directory }) as unknown as Promise<AppAgentsResponse>,
+					opencodeV2.session.get({ sessionID: id, directory }) as unknown as Promise<Session>
+				]);
+				const connected = new Set(providerResponse.connected);
+				providers = providerResponse.all.filter(
+					(provider) => connected.has(provider.id) && Object.keys(provider.models).length > 0
+				);
+				agents = agentResponse.filter(
+					(candidate) => !candidate.hidden && (candidate.mode === 'primary' || candidate.mode === 'all')
+				);
+
+				const sessionModel = session.model && providers.some(
+					(provider) => provider.id === session.model?.providerID && provider.models[session.model.id]
+				) ? session.model : undefined;
+				const provider = providers[0];
+				const fallbackModelID = providerResponse.default[provider?.id ?? ''] ?? Object.keys(provider?.models ?? {})[0];
+				if (sessionModel) {
+					modelValue = modelOptionValue(sessionModel.providerID, sessionModel.id);
+					const model = providers.find((provider) => provider.id === sessionModel.providerID)?.models[sessionModel.id];
+					variant = sessionModel.variant && model?.variants?.[sessionModel.variant] ? sessionModel.variant : '';
+				} else if (provider && fallbackModelID) {
+					modelValue = modelOptionValue(provider.id, fallbackModelID);
+				}
+				agent = agents.some((candidate) => candidate.name === session.agent)
+					? session.agent ?? ''
+					: agents.find((candidate) => candidate.name === 'build')?.name ?? agents[0]?.name ?? '';
+			} catch (cause) {
+				promptError = cause instanceof Error ? cause.message : 'Unable to load chat options.';
+			} finally {
+				optionsLoading = false;
+			}
+		}
+
+		function resume() {
+			if (document.hidden) return;
+			connect();
+			void refreshMessages();
+		}
+
+		function goOffline() {
+			controller?.abort();
+			connectionState = 'offline';
+		}
+
+		void initialize();
+		document.addEventListener('visibilitychange', resume);
+		window.addEventListener('pageshow', resume);
+		window.addEventListener('online', resume);
+		window.addEventListener('offline', goOffline);
+
+		return () => {
+			disposed = true;
+			controller?.abort();
+			if (reconnectTimer) clearTimeout(reconnectTimer);
+			document.removeEventListener('visibilitychange', resume);
+			window.removeEventListener('pageshow', resume);
+			window.removeEventListener('online', resume);
+			window.removeEventListener('offline', goOffline);
+		};
 	});
 </script>
 
@@ -43,6 +257,13 @@
 </svelte:head>
 
 <main>
+	{#if connectionState !== 'connected'}
+		<div class="connection" role="status" aria-live="polite">
+			<span class="spinner" aria-hidden="true"></span>
+			{connectionState === 'offline' ? 'Offline' : connectionState === 'reconnecting' ? 'Reconnecting' : 'Connecting'}
+		</div>
+	{/if}
+
 	<header>
 		<a class="back" href="/">Back to sessions</a>
 		<p class="eyebrow">OpenCode</p>
@@ -74,6 +295,22 @@
 			{/each}
 		</section>
 	{/if}
+
+	<div class="composer" class:active={prompt.length > 0 || submitting || promptError !== null}>
+		<PromptComposer
+			bind:value={prompt}
+			onsubmit={submitFollowUp}
+			label="Follow-up prompt"
+			placeholder="Ask a follow-up..."
+			rows={3}
+			disabled={submitting || !directory || optionsLoading || connectionState === 'offline'}
+			submitDisabled={!modelValue || !agent}
+			submitLabel={submitting ? 'Sending...' : 'Send follow-up'}
+			error={promptError}
+		>
+			<ChatOptions {providers} {agents} bind:modelValue bind:agent bind:variant disabled={submitting || optionsLoading} />
+		</PromptComposer>
+	</div>
 </main>
 
 <style>
@@ -87,7 +324,9 @@
 		font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 	}
 
-	main { max-width: 46rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+	main { max-width: 46rem; margin: 0 auto; padding: 1.25rem 1rem 7rem; }
+	.connection { position: fixed; z-index: 10; top: max(0.65rem, env(safe-area-inset-top)); left: 50%; display: flex; align-items: center; gap: 0.45rem; padding: 0.45rem 0.7rem; border: 1px solid #3c4646; border-radius: 999px; background: rgb(26 30 32 / 0.94); color: #cbd2d1; box-shadow: 0 0.4rem 1.5rem rgb(0 0 0 / 0.3); font-size: 0.72rem; font-weight: 700; transform: translateX(-50%); backdrop-filter: blur(0.5rem); }
+	.spinner { width: 0.75rem; height: 0.75rem; border: 2px solid #53605e; border-top-color: #79ddc0; border-radius: 50%; animation: spin 0.8s linear infinite; }
 	header { margin-bottom: 1.75rem; }
 	.back { display: inline-block; margin-bottom: 1.75rem; color: #aeb8b7; font-size: 0.85rem; text-decoration: none; }
 	.back::before { content: '← '; }
@@ -104,6 +343,11 @@
 	.tools { margin: 0.9rem 0 0; color: #9ca9a7; font-family: ui-monospace, monospace; font-size: 0.75rem; overflow-wrap: anywhere; }
 	.user .tools { color: #d9ecff; }
 	.empty { margin: 0; color: #788382; font-style: italic; }
+	.composer { position: fixed; z-index: 5; bottom: 0; left: 50%; width: min(calc(100% - 2rem), 46rem); padding: 1rem 0 max(0rem, env(safe-area-inset-bottom)); background: linear-gradient(transparent, #111315 1rem); transition: transform 180ms ease-out; }
+	.composer:not(.active):not(:focus-within) { transform: translate(-50%, calc(100% - 4.75rem)); }
+	.composer:focus-within, .composer.active { transform: translate(-50%, 0); }
+	@keyframes spin { to { transform: rotate(360deg); } }
+	@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.8s; } .composer { transition: none; } }
 
 	@media (min-width: 40rem) {
 		main { padding-right: 1.5rem; padding-left: 1.5rem; }
