@@ -10,6 +10,7 @@
 		submitLabel = 'Send',
 		error,
 		rows = 4,
+		terminalHref,
 		children,
 		onsubmit
 	}: {
@@ -21,6 +22,7 @@
 		submitLabel?: string;
 		error?: string | null;
 		rows?: number;
+		terminalHref?: string;
 		children?: Snippet;
 		onsubmit: (event: SubmitEvent) => void;
 	} = $props();
@@ -56,10 +58,17 @@
 	{#if children}{@render children()}{/if}
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
 
-	<button type="submit" disabled={disabled || submitDisabled || !value.trim()}>
-		{submitLabel}
-		<span aria-hidden="true">→</span>
-	</button>
+	<div class="actions">
+		{#if terminalHref}
+			<a class="terminal" href={terminalHref} aria-label="Open terminal" title="Open terminal">
+				<span aria-hidden="true">&gt;_</span>
+			</a>
+		{/if}
+		<button type="submit" disabled={disabled || submitDisabled || !value.trim()}>
+			{submitLabel}
+			<span aria-hidden="true">→</span>
+		</button>
+	</div>
 </form>
 
 <style>
@@ -67,12 +76,14 @@
 	label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 	textarea { display: block; width: 100%; min-height: 4.75rem; max-height: 15rem; resize: none; overflow-y: hidden; padding: 0.8rem; border: 0; border-radius: 0.65rem; background: transparent; color: #f6f7f7; font: inherit; font-size: 1rem; line-height: 1.55; }
 	textarea::placeholder { color: #707a79; }
-	textarea:focus-visible, button:focus-visible { outline: 2px solid #79ddc0; outline-offset: -2px; }
+	textarea:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid #79ddc0; outline-offset: -2px; }
 	textarea:disabled { opacity: 0.65; }
 	.error { margin: 0.75rem 0.15rem 0; color: #ffb4b8; font-size: 0.82rem; line-height: 1.4; }
-	button { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: 0.65rem; padding: 0.85rem 1rem; border: 0; border-radius: 0.7rem; background: #79ddc0; color: #111315; font: inherit; font-size: 0.88rem; font-weight: 800; cursor: pointer; }
+	.actions { display: flex; gap: 0.55rem; margin-top: 0.65rem; }
+	button { display: flex; flex: 1; align-items: center; justify-content: space-between; min-width: 0; padding: 0.85rem 1rem; border: 0; border-radius: 0.7rem; background: #79ddc0; color: #111315; font: inherit; font-size: 0.88rem; font-weight: 800; cursor: pointer; }
 	button span { font-size: 1.1rem; }
+	.terminal { display: grid; flex: 0 0 3.2rem; place-items: center; border: 1px solid #3a4544; border-radius: 0.7rem; background: #242a2b; color: #cdd5d4; font-family: ui-monospace, monospace; font-size: 0.78rem; font-weight: 800; text-decoration: none; }
 	button:disabled { cursor: not-allowed; opacity: 0.42; }
-	@media (hover: hover) { button:not(:disabled):hover { background: #91e7ce; } }
+	@media (hover: hover) { button:not(:disabled):hover { background: #91e7ce; } .terminal:hover { border-color: #5b6d6a; background: #2d3535; } }
 	@media (min-width: 40rem) { form { padding: 0.8rem; } }
 </style>
