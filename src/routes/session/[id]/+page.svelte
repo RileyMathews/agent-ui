@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import { browser } from '$app/environment';
 	import type { Event, Part, SessionMessagesResponse, TextPart, ToolPart } from '@opencode-ai/sdk/client';
 	import type { Agent, AppAgentsResponse, Provider, ProviderListResponse, Session } from '@opencode-ai/sdk/v2/client';
 	import { opencode, opencodeV2 } from '$lib/opencode';
@@ -11,12 +12,16 @@
 	type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'offline';
 
 	const sessionID = page.params.id;
+	const draftKey = `agent-ui:prompt:session:${sessionID}`;
 	let messages = $state<HistoryMessage[]>([]);
 	let error = $state<string | null>(null);
 	let loading = $state(true);
 	let connectionState = $state<ConnectionState>('connecting');
 	let directory = $state<string | undefined>();
-	let prompt = $state('');
+	const terminalHref = $derived(directory
+		? `/terminal?${new URLSearchParams({ directory: directory ?? '', returnTo: `/session/${encodeURIComponent(sessionID ?? '')}` })}`
+		: undefined);
+	let prompt = $state(browser ? sessionStorage.getItem(draftKey) ?? '' : '');
 	let submitting = $state(false);
 	let promptError = $state<string | null>(null);
 	let providers = $state<Provider[]>([]);
@@ -25,6 +30,11 @@
 	let agent = $state('');
 	let variant = $state('');
 	let optionsLoading = $state(true);
+
+	$effect(() => {
+		if (!browser) return;
+		sessionStorage.setItem(draftKey, prompt);
+	});
 
 	function textParts(parts: Part[]): TextPart[] {
 		return parts.filter((part): part is TextPart => part.type === 'text' && !part.ignored);
@@ -361,6 +371,7 @@
 			submitDisabled={!modelValue || !agent}
 			submitLabel={submitting ? 'Sending...' : 'Send follow-up'}
 			error={promptError}
+			{terminalHref}
 		>
 			<ChatOptions {providers} {agents} bind:modelValue bind:agent bind:variant disabled={submitting || optionsLoading} />
 		</PromptComposer>
