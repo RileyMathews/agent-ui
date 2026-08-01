@@ -11,4 +11,4 @@ We are still in early poc mode getting the project off the ground here.
 * keep things mobile friendly and mobile first. I expect to use this app 99% of the time from my phone so don't even bother with desktop specific styles.
 * Focus on robustness and UX. the main reason I am breaking out this app is pain points with the opencode built in web UI. Especially around reconnecting to the server after pulling up the browser tab on my phone. So especially focus on robustness and recovery of persistent server connections.
 * For now just make the opencode server URL a build time static config to scottyopencode.rileymathews.com. That is a server I expose over my tailnet we can use for local dev and even deployment when we get there.
-
+* The server OpenAPI specification is stored at `openapi.json`. It is reference-only; always interact with the OpenCode backend through the OpenCode SDK.
