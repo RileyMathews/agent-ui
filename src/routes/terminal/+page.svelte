@@ -103,10 +103,7 @@
 </main>
 
 <style>
-	:global(*) { box-sizing: border-box; }
-	:global(html), :global(body) { height: 100%; overflow: hidden; }
-	:global(body) { margin: 0; min-width: 20rem; background: #0b0d0e; color: #d8dfdd; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-	main { display: grid; width: 100%; height: 100dvh; grid-template-rows: auto minmax(0, 1fr); padding-top: env(safe-area-inset-top); background: #0b0d0e; }
+	main { position: fixed; inset: 0; display: grid; min-width: 20rem; box-sizing: border-box; grid-template-rows: auto minmax(0, 1fr); padding-top: env(safe-area-inset-top); overflow: hidden; background: #0b0d0e; color: #d8dfdd; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
 	header { display: flex; align-items: center; min-height: 3.25rem; padding: 0.35rem max(0.5rem, env(safe-area-inset-right)) 0.35rem max(0.5rem, env(safe-area-inset-left)); border-bottom: 1px solid #252b2c; background: #111516; }
 	.close { display: grid; width: 2.5rem; height: 2.5rem; padding: 0; place-items: center; border: 0; border-radius: 0.7rem; background: #202627; color: #e6ebea; font: inherit; font-size: 1.2rem; cursor: pointer; }
 	.close:focus-visible, .status button:focus-visible { outline: 2px solid #79ddc0; outline-offset: 2px; }

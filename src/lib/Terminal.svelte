@@ -327,6 +327,6 @@
 <div class="terminal" bind:this={container} aria-label="Terminal"></div>
 
 <style>
-	.terminal { width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0.6rem 0.45rem; overflow: hidden; background: #0b0d0e; }
+	.terminal { width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; padding: 0.6rem 0.45rem; overflow: hidden; background: #0b0d0e; }
 	.terminal:focus-within { outline: none; }
 </style>
