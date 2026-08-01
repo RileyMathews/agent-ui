@@ -1,9 +1,8 @@
-<script lang="ts">
+	<script lang="ts">
 	import { onMount } from 'svelte';
-	import type { SessionV2Info, V2SessionListResponse } from '@opencode-ai/sdk/v2/client';
-	import { opencodeV2 } from '$lib/opencode';
+	import type { SessionV2Info } from '@opencode-ai/sdk/v2/client';
+	import { listSessions } from '$lib/sessions';
 
-	const pageLimit = 5000;
 	let sessions = $state<SessionV2Info[]>([]);
 	let error = $state<string | null>(null);
 	let loading = $state(true);
@@ -21,23 +20,7 @@
 
 	onMount(async () => {
 		try {
-			const all: SessionV2Info[] = [];
-			let cursor: string | undefined;
-
-			for (;;) {
-				// The generated SDK types do not preserve the client's responseStyle setting.
-				const page = (await opencodeV2.v2.session.list({
-					limit: pageLimit,
-					order: 'desc',
-					cursor
-				})) as unknown as V2SessionListResponse;
-				all.push(...page.data);
-
-				if (page.data.length < pageLimit || !page.cursor.next) break;
-				cursor = page.cursor.next;
-			}
-
-			sessions = all
+			sessions = (await listSessions())
 				.filter((session) => !session.parentID && session.time.archived === undefined)
 				.sort((left, right) => right.time.updated - left.time.updated);
 		} catch (cause) {
@@ -59,9 +42,12 @@
 			<p class="eyebrow">OpenCode</p>
 			<h1>Sessions</h1>
 		</div>
-		{#if !loading && !error}
-			<p class="count">{sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}</p>
-		{/if}
+		<div class="header-actions">
+			{#if !loading && !error}
+				<p class="count">{sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}</p>
+			{/if}
+			<a class="new" href="/new">New</a>
+		</div>
 	</header>
 
 	{#if loading}
@@ -140,6 +126,21 @@
 		font-variant-numeric: tabular-nums;
 	}
 
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.new {
+		padding: 0.55rem 0.8rem;
+		border-radius: 0.55rem;
+		background: #79ddc0;
+		color: #111315;
+		font-size: 0.8rem;
+		font-weight: 750;
+	}
+
 	.status {
 		margin: 0;
 		padding: 1rem 1.1rem;
@@ -171,7 +172,7 @@
 		box-shadow: 0 1px 0 rgb(255 255 255 / 0.025) inset;
 	}
 
-	a {
+	li a {
 		display: block;
 		padding: 1.15rem;
 		color: inherit;
@@ -243,7 +244,7 @@
 			padding-left: 1.5rem;
 		}
 
-		a {
+		li a {
 			padding: 1.25rem 1.35rem;
 		}
 	}
