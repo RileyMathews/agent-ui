@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { Session } from '@opencode-ai/sdk/client';
-	import { opencode } from '$lib/opencode';
+	import type { SessionV2Info, V2SessionListResponse } from '@opencode-ai/sdk/v2/client';
+	import { opencodeV2 } from '$lib/opencode';
 
-	let sessions = $state<Session[]>([]);
+	const pageLimit = 5000;
+	let sessions = $state<SessionV2Info[]>([]);
 	let error = $state<string | null>(null);
 	let loading = $state(true);
 
@@ -20,8 +21,25 @@
 
 	onMount(async () => {
 		try {
-			// The generated SDK types do not preserve the client's responseStyle setting.
-			sessions = (await opencode.session.list()) as unknown as Session[];
+			const all: SessionV2Info[] = [];
+			let cursor: string | undefined;
+
+			for (;;) {
+				// The generated SDK types do not preserve the client's responseStyle setting.
+				const page = (await opencodeV2.v2.session.list({
+					limit: pageLimit,
+					order: 'desc',
+					cursor
+				})) as unknown as V2SessionListResponse;
+				all.push(...page.data);
+
+				if (page.data.length < pageLimit || !page.cursor.next) break;
+				cursor = page.cursor.next;
+			}
+
+			sessions = all
+				.filter((session) => !session.parentID && session.time.archived === undefined)
+				.sort((left, right) => right.time.updated - left.time.updated);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to load sessions.';
 		} finally {
@@ -56,11 +74,13 @@
 		<ul>
 			{#each sessions as session (session.id)}
 				<li>
-					<h2>{session.title || 'Untitled session'}</h2>
-					<dl>
-						<div><dt>Updated</dt><dd>{formatDate(session.time.updated)}</dd></div>
-						<div><dt>Directory</dt><dd>{formatDirectory(session.directory)}</dd></div>
-					</dl>
+					<a href={`/session/${encodeURIComponent(session.id)}`}>
+						<h2>{session.title || 'Untitled session'}</h2>
+						<dl>
+							<div><dt>Updated</dt><dd>{formatDate(session.time.updated)}</dd></div>
+							<div><dt>Directory</dt><dd>{formatDirectory(session.location.directory)}</dd></div>
+						</dl>
+					</a>
 				</li>
 			{/each}
 		</ul>
@@ -145,11 +165,29 @@
 	li {
 		position: relative;
 		overflow: hidden;
-		padding: 1.15rem;
 		border: 1px solid #2c3334;
 		border-radius: 0.75rem;
 		background: #191d1f;
 		box-shadow: 0 1px 0 rgb(255 255 255 / 0.025) inset;
+	}
+
+	a {
+		display: block;
+		padding: 1.15rem;
+		color: inherit;
+		text-decoration: none;
+	}
+
+	a:focus-visible {
+		outline: 2px solid #79ddc0;
+		outline-offset: -2px;
+	}
+
+	@media (hover: hover) {
+		li:hover {
+			border-color: #4a5956;
+			background: #1d2224;
+		}
 	}
 
 	li::before {
@@ -205,7 +243,7 @@
 			padding-left: 1.5rem;
 		}
 
-		li {
+		a {
 			padding: 1.25rem 1.35rem;
 		}
 	}
