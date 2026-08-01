@@ -17,6 +17,7 @@
 	} = $props();
 
 	let container: HTMLDivElement;
+	let scrollbackHeight = $state(0);
 	let sharedGhostty: Promise<{ mod: typeof import('ghostty-web'); ghostty: Ghostty }> | undefined;
 
 	function loadGhostty() {
@@ -41,10 +42,12 @@
 		let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 		let resizeTimer: ReturnType<typeof setTimeout> | undefined;
 		let fitFrame: number | undefined;
+		let scrollFrame: number | undefined;
 		let attempts = 0;
 		let cursor = 0;
 		let disposed = false;
 		let connecting = false;
+		let autoFollow = true;
 		let lastSize: { cols: number; rows: number } | undefined;
 		let pendingOutput = '';
 		let writeQueued = false;
@@ -61,6 +64,7 @@
 			const output = pendingOutput;
 			pendingOutput = '';
 			terminal.write(output);
+			requestAnimationFrame(() => updateScrollback(autoFollow));
 		}
 
 		function write(output: string) {
@@ -78,6 +82,37 @@
 			});
 		}
 
+		function updateScrollback(follow = autoFollow) {
+			if (!terminal || !container.clientHeight) return;
+			const lineHeight = container.clientHeight / terminal.rows;
+			scrollbackHeight = terminal.getScrollbackLength() * lineHeight;
+			requestAnimationFrame(() => {
+				if (disposed) return;
+				if (!follow) {
+					syncTerminalScroll();
+					return;
+				}
+				setTimeout(() => {
+					if (!disposed) window.scrollTo({ top: document.documentElement.scrollHeight });
+				}, 0);
+			});
+		}
+
+		function syncTerminalScroll() {
+			if (!terminal || !container.clientHeight) return;
+			const lineHeight = container.clientHeight / terminal.rows;
+			terminal.scrollToLine(Math.round(window.scrollY / lineHeight));
+		}
+
+		function scheduleTerminalScroll() {
+			if (scrollFrame !== undefined) return;
+			scrollFrame = requestAnimationFrame(() => {
+				scrollFrame = undefined;
+				if (window.scrollY >= document.documentElement.scrollHeight - window.innerHeight - 2) autoFollow = true;
+				syncTerminalScroll();
+			});
+		}
+
 		function focusTerminal() {
 			if (!terminal) return;
 			const input = terminal.textarea;
@@ -90,6 +125,7 @@
 		}
 
 		function syncSize(cols: number, rows: number) {
+			updateScrollback();
 			if (lastSize?.cols === cols && lastSize.rows === rows) return;
 			const send = () => {
 				lastSize = { cols, rows };
@@ -283,16 +319,31 @@
 					event.preventDefault();
 					terminal.paste(text);
 				};
+				const wheel = (event: WheelEvent) => {
+					event.preventDefault();
+					event.stopImmediatePropagation();
+					if (event.deltaY < 0) autoFollow = false;
+					window.scrollBy({ top: event.deltaY });
+				};
+				const touchmove = () => {
+					autoFollow = false;
+				};
 				container.addEventListener('pointerdown', focus);
 				container.addEventListener('copy', copy, true);
 				container.addEventListener('paste', paste, true);
+				container.addEventListener('wheel', wheel, { capture: true, passive: false });
+				container.addEventListener('touchmove', touchmove, { passive: true });
 				subscriptions.push({ dispose: () => container.removeEventListener('pointerdown', focus) });
 				subscriptions.push({ dispose: () => container.removeEventListener('copy', copy, true) });
 				subscriptions.push({ dispose: () => container.removeEventListener('paste', paste, true) });
+				subscriptions.push({ dispose: () => container.removeEventListener('wheel', wheel, true) });
+				subscriptions.push({ dispose: () => container.removeEventListener('touchmove', touchmove) });
 				if (document.fonts) void document.fonts.ready.then(scheduleFit);
 				window.addEventListener('resize', scheduleFit);
+				window.addEventListener('scroll', scheduleTerminalScroll, { passive: true });
 				focusTerminal();
 				syncSize(terminal.cols, terminal.rows);
+				updateScrollback(true);
 				await connect();
 			} catch (cause) {
 				setState('error', cause instanceof Error ? cause.message : 'Unable to start the terminal');
@@ -311,6 +362,7 @@
 			if (reconnectTimer) clearTimeout(reconnectTimer);
 			if (resizeTimer) clearTimeout(resizeTimer);
 			if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
+			if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame);
 			for (const subscription of subscriptions) dispose(subscription);
 			dispose(fit);
 			terminal?.dispose();
@@ -320,13 +372,17 @@
 			window.removeEventListener('online', resume);
 			window.removeEventListener('offline', goOffline);
 			window.removeEventListener('resize', scheduleFit);
+			window.removeEventListener('scroll', scheduleTerminalScroll);
 		};
 	});
 </script>
 
-<div class="terminal" bind:this={container} aria-label="Terminal"></div>
+<div class="scroll-space" style:--scrollback-height={`${scrollbackHeight}px`}>
+	<div class="terminal" bind:this={container} aria-label="Terminal"></div>
+</div>
 
 <style>
-	.terminal { width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0.6rem 0.45rem; overflow: hidden; background: #0b0d0e; }
+	.scroll-space { min-height: var(--terminal-content-height); height: calc(var(--terminal-content-height) + var(--scrollback-height)); }
+	.terminal { position: sticky; top: var(--terminal-header-height); width: 100%; height: var(--terminal-content-height); min-width: 0; min-height: 0; padding: 0.6rem 0.45rem; overflow: hidden; background: #0b0d0e; }
 	.terminal:focus-within { outline: none; }
 </style>

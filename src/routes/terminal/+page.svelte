@@ -104,15 +104,15 @@
 
 <style>
 	:global(*) { box-sizing: border-box; }
-	:global(html), :global(body) { height: 100%; overflow: hidden; }
-	:global(body) { margin: 0; min-width: 20rem; background: #0b0d0e; color: #d8dfdd; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-	main { display: grid; width: 100%; height: 100dvh; grid-template-rows: auto minmax(0, 1fr); background: #0b0d0e; }
+	:global(html) { min-height: 100%; overflow-x: clip; }
+	:global(body) { min-height: 100%; margin: 0; min-width: 20rem; overflow-x: clip; background: #0b0d0e; color: #d8dfdd; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+	main { --terminal-header-height: calc(3.25rem + env(safe-area-inset-top)); --terminal-content-height: calc(100dvh - var(--terminal-header-height) - env(safe-area-inset-bottom)); width: 100%; min-height: 100dvh; background: #0b0d0e; }
 	header { position: sticky; z-index: 10; top: 0; display: flex; align-items: end; min-height: calc(3.25rem + env(safe-area-inset-top)); padding: calc(0.35rem + env(safe-area-inset-top)) max(0.5rem, env(safe-area-inset-right)) 0.35rem max(0.5rem, env(safe-area-inset-left)); border-bottom: 1px solid #252b2c; background: #111516; }
 	.close { display: grid; width: 2.5rem; height: 2.5rem; padding: 0; place-items: center; border: 0; border-radius: 0.7rem; background: #202627; color: #e6ebea; font: inherit; font-size: 1.2rem; cursor: pointer; }
 	.close:focus-visible, .status button:focus-visible { outline: 2px solid #79ddc0; outline-offset: 2px; }
 	.close:disabled { opacity: 0.5; }
 	.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-	.screen { min-width: 0; min-height: 0; padding-bottom: env(safe-area-inset-bottom); overflow: hidden; }
+	.screen { min-width: 0; min-height: var(--terminal-content-height); padding-bottom: env(safe-area-inset-bottom); }
 	.status { display: grid; height: 100%; place-content: center; justify-items: center; gap: 0.8rem; color: #8c9795; font-size: 0.82rem; }
 	.status p { max-width: 28rem; margin: 0; padding: 0 1rem; text-align: center; overflow-wrap: anywhere; }
 	.status.error { color: #ffb4b8; }
