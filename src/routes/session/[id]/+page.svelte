@@ -44,11 +44,58 @@
 			: stringInput(part, 'description') ?? 'Sub-agent task';
 	}
 
-	function subAgentStatus(part: ToolPart) {
+	function toolStatus(part: ToolPart) {
 		if (part.state.status === 'pending') return 'Queued';
 		if (part.state.status === 'running') return 'Running';
 		if (part.state.status === 'completed') return 'Finished';
 		return 'Failed';
+	}
+
+	function toolDetail(part: ToolPart): string {
+		const input = part.state.input ?? {};
+		const str = (key: string) => typeof input[key] === 'string' ? (input[key] as string) : undefined;
+		const summarize = (value: string) => value.replace(/\s+/g, ' ').trim();
+
+		switch (part.tool) {
+			case 'bash': {
+				const command = str('command');
+				return command ? summarize(`$ ${command}`) : '';
+			}
+			case 'read':
+			case 'write':
+			case 'edit':
+			case 'patch': {
+				const file = str('filePath') ?? str('file') ?? str('path');
+				return file ? summarize(file) : '';
+			}
+			case 'glob': {
+				const pattern = str('pattern') ?? '';
+				const path = str('path');
+				return summarize(path ? `${path}: ${pattern}` : pattern);
+			}
+			case 'grep': {
+				const pattern = str('pattern') ?? '';
+				const path = str('path');
+				const include = str('include');
+				const bits = [pattern];
+				if (path) bits.push(`in ${path}`);
+				if (include) bits.push(`(${include})`);
+				return summarize(bits.join(' '));
+			}
+			case 'webfetch':
+				return summarize(str('url') ?? '');
+			case 'websearch':
+				return summarize(str('query') ?? '');
+			case 'todowrite': {
+				const todos = input['todos'];
+				if (Array.isArray(todos)) return `${todos.length} ${todos.length === 1 ? 'todo' : 'todos'}`;
+				return '';
+			}
+			case 'skill':
+				return summarize(str('name') ?? '');
+			default:
+				return '';
+		}
 	}
 
 	function applyEvent(event: Event) {
@@ -255,7 +302,7 @@
 									<div class="agent-detail">
 										<div class="agent-heading">
 											<strong>{subAgentTitle(part)}</strong>
-											<span class="agent-status">{subAgentStatus(part)}</span>
+											<span class="agent-status">{toolStatus(part)}</span>
 										</div>
 										<p>{stringInput(part, 'subagent_type') ?? 'agent'}</p>
 									</div>
@@ -264,7 +311,26 @@
 						</div>
 					{/if}
 					{#if otherTools.length > 0}
-						<p class="tools">{otherTools.map((part) => part.tool).join(' · ')}</p>
+						<ul class="tools" aria-label="Tool calls">
+							{#each otherTools as part (part.id)}
+								<li class="tool" class:running={part.state.status === 'running'} class:error-state={part.state.status === 'error'}>
+									<span class="tool-mark" aria-hidden="true">
+										{#if part.state.status === 'running'}
+											<span class="tool-spinner"></span>
+										{:else if part.state.status === 'completed'}
+											<span class="tool-check">✓</span>
+										{:else if part.state.status === 'error'}
+											<span class="tool-error">!</span>
+										{:else}
+											<span class="tool-dot"></span>
+										{/if}
+									</span>
+									<span class="tool-name">{part.tool}</span>
+									<span class="tool-detail">{toolDetail(part)}</span>
+									<span class="tool-status">{toolStatus(part)}</span>
+								</li>
+							{/each}
+						</ul>
 					{/if}
 					{#if text.length === 0 && tools.length === 0}
 						<p class="empty">No displayable content.</p>
@@ -327,8 +393,24 @@
 	.running .agent-status { color: #79ddc0; }
 	.error-state .agent-status { color: #ff9c9f; }
 	.agent-detail p { margin: 0.2rem 0 0; color: #74817f; font-family: ui-monospace, monospace; font-size: 0.68rem; }
-	.tools { margin: 0.9rem 0 0; color: #9ca9a7; font-family: ui-monospace, monospace; font-size: 0.75rem; overflow-wrap: anywhere; }
-	.user .tools { color: #d9ecff; }
+	.tools { display: grid; gap: 0.35rem; margin: 0.9rem 0 0; padding: 0; list-style: none; }
+	.tool { display: flex; align-items: center; gap: 0.5rem; min-width: 0; padding: 0.4rem 0.55rem; border: 1px solid #2c3334; border-radius: 0.5rem; background: #161a1c; font-family: ui-monospace, monospace; font-size: 0.72rem; }
+	.tool.running { border-color: #3e645a; background: #18201e; }
+	.tool.error-state { border-color: #603638; }
+	.tool-mark { display: grid; flex: 0 0 auto; width: 1.1rem; height: 1.1rem; place-items: center; color: #79ddc0; }
+	.tool-spinner { width: 0.6rem; height: 0.6rem; border: 2px solid #3d5c54; border-top-color: #79ddc0; border-radius: 50%; animation: spin 0.8s linear infinite; }
+	.tool-check, .tool-error { font-size: 0.7rem; font-weight: 800; }
+	.tool-error { color: #ff9c9f; }
+	.tool-dot { width: 0.35rem; height: 0.35rem; border-radius: 50%; background: #71807e; }
+	.tool-name { flex: 0 0 auto; color: #cdd5d4; font-weight: 700; }
+	.tool-detail { flex: 1 1 auto; min-width: 0; color: #9ca9a7; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+	.tool-status { flex: 0 0 auto; color: #8e9a98; font-size: 0.6rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
+	.running .tool-status { color: #79ddc0; }
+	.error-state .tool-status { color: #ff9c9f; }
+	.user .tool { border-color: rgb(255 255 255 / 0.18); background: rgb(0 0 0 / 0.15); }
+	.user .tool-name { color: #fff; }
+	.user .tool-detail { color: #d9ecff; }
+	.user .tool-status { color: #cfe3ff; }
 	.empty { margin: 0; color: #788382; font-style: italic; }
 	.thread-actions { position: fixed; z-index: 5; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 0.55rem; padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom)); border-top: 1px solid #293031; background: rgb(17 19 21 / 0.96); backdrop-filter: blur(0.6rem); }
 	.thread-actions a, .thread-actions span[aria-disabled] { display: flex; align-items: center; justify-content: space-between; min-height: 3.1rem; padding: 0.75rem 0.9rem; border: 1px solid #3a4544; border-radius: 0.75rem; background: #242a2b; color: #cdd5d4; font-size: 0.88rem; font-weight: 800; text-decoration: none; }
