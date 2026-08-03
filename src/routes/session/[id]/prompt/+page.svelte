@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import type { Agent, AppAgentsResponse, Provider, ProviderListResponse, Session } from '@opencode-ai/sdk/v2/client';
 	import { opencode, opencodeV2 } from '$lib/opencode';
@@ -9,24 +8,19 @@
 	import ChatOptions from '$lib/ChatOptions.svelte';
 
 	const sessionID = page.params.id;
-	const draftKey = `agent-ui:prompt:session:${sessionID}`;
 	let directory = $state<string | undefined>();
 	const terminalHref = $derived(directory
 		? `/terminal?${new URLSearchParams({ directory, returnTo: `/session/${encodeURIComponent(sessionID ?? '')}/prompt` })}`
 		: undefined);
 	let providers = $state<Provider[]>([]);
 	let agents = $state<Agent[]>([]);
-	let prompt = $state(browser ? sessionStorage.getItem(draftKey) ?? '' : '');
+	let prompt = $state('');
 	let modelValue = $state('');
 	let agent = $state('');
 	let variant = $state('');
 	let loading = $state(true);
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
-
-	$effect(() => {
-		if (browser) sessionStorage.setItem(draftKey, prompt);
-	});
 
 	function modelOptionValue(providerID: string, modelID: string) {
 		return JSON.stringify({ providerID, modelID });
@@ -40,7 +34,6 @@
 		try {
 			const model = JSON.parse(modelValue) as { providerID: string; modelID: string };
 			await opencodeV2.session.promptAsync({ sessionID, directory, model, agent, variant: variant || undefined, parts: [{ type: 'text', text: prompt.trim() }] });
-			sessionStorage.removeItem(draftKey);
 			await goto(`/session/${encodeURIComponent(sessionID)}`);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to send the follow-up.';
