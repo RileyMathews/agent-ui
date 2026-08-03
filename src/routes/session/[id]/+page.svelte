@@ -17,6 +17,10 @@
 		? `/terminal?${new URLSearchParams({ directory: directory ?? '', returnTo: `/session/${encodeURIComponent(sessionID ?? '')}` })}`
 		: undefined);
 
+	function scrollToBottom() {
+		window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+	}
+
 	function textParts(parts: Part[]): TextPart[] {
 		return parts.filter((part): part is TextPart => part.type === 'text' && !part.ignored);
 	}
@@ -262,7 +266,6 @@
 	{/if}
 
 	<header>
-		<a class="back" href="/">Back to sessions</a>
 		<p class="eyebrow">OpenCode</p>
 		<h1>Session history</h1>
 	</header>
@@ -341,12 +344,14 @@
 	{/if}
 
 	<footer class="thread-actions" aria-label="Thread actions">
+		<a class="back" href="/" aria-label="Back to sessions" title="Back to sessions"><span aria-hidden="true">←</span></a>
 		{#if terminalHref}
-			<a href={terminalHref}>Terminal <span aria-hidden="true">&gt;_</span></a>
+			<a class="terminal" href={terminalHref}>Terminal <span aria-hidden="true">&gt;_</span></a>
 		{:else}
-			<span aria-disabled="true">Terminal <span aria-hidden="true">&gt;_</span></span>
+			<span class="terminal" aria-disabled="true">Terminal <span aria-hidden="true">&gt;_</span></span>
 		{/if}
 		<a class="follow-up" href={`/session/${encodeURIComponent(sessionID ?? '')}/prompt`}>Follow up <span aria-hidden="true">→</span></a>
+		<button class="scroll-to-bottom" onclick={scrollToBottom} aria-label="Scroll to bottom" title="Scroll to bottom"><span aria-hidden="true">↓</span></button>
 	</footer>
 </main>
 
@@ -365,9 +370,6 @@
 	.connection { position: fixed; z-index: 10; top: max(0.65rem, env(safe-area-inset-top)); left: 50%; display: flex; align-items: center; gap: 0.45rem; padding: 0.45rem 0.7rem; border: 1px solid #3c4646; border-radius: 999px; background: rgb(26 30 32 / 0.94); color: #cbd2d1; box-shadow: 0 0.4rem 1.5rem rgb(0 0 0 / 0.3); font-size: 0.72rem; font-weight: 700; transform: translateX(-50%); backdrop-filter: blur(0.5rem); }
 	.spinner { width: 0.75rem; height: 0.75rem; border: 2px solid #53605e; border-top-color: #79ddc0; border-radius: 50%; animation: spin 0.8s linear infinite; }
 	header { margin-bottom: 1.75rem; }
-	.back { display: inline-block; margin-bottom: 1.75rem; color: #aeb8b7; font-size: 0.85rem; text-decoration: none; }
-	.back::before { content: '← '; }
-	.back:focus-visible { outline: 2px solid #79ddc0; outline-offset: 3px; }
 	.eyebrow { margin: 0 0 0.4rem; color: #79ddc0; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
 	h1 { margin: 0; font-size: clamp(2rem, 8vw, 2.75rem); letter-spacing: -0.055em; line-height: 0.95; }
 	.status { margin: 0; padding: 1rem 1.1rem; border: 1px solid #2c3334; border-radius: 0.75rem; background: #1a1e20; color: #aeb8b7; }
@@ -412,11 +414,13 @@
 	.user .tool-detail { color: #d9ecff; }
 	.user .tool-status { color: #cfe3ff; }
 	.empty { margin: 0; color: #788382; font-style: italic; }
-	.thread-actions { position: fixed; z-index: 5; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 0.55rem; padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom)); border-top: 1px solid #293031; background: rgb(17 19 21 / 0.96); backdrop-filter: blur(0.6rem); }
-	.thread-actions a, .thread-actions span[aria-disabled] { display: flex; align-items: center; justify-content: space-between; min-height: 3.1rem; padding: 0.75rem 0.9rem; border: 1px solid #3a4544; border-radius: 0.75rem; background: #242a2b; color: #cdd5d4; font-size: 0.88rem; font-weight: 800; text-decoration: none; }
+	.thread-actions { position: fixed; z-index: 5; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: auto 0.8fr 1.2fr auto; gap: 0.55rem; padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom)); border-top: 1px solid #293031; background: rgb(17 19 21 / 0.96); backdrop-filter: blur(0.6rem); }
+	.thread-actions a, .thread-actions button, .thread-actions span[aria-disabled] { display: flex; align-items: center; justify-content: space-between; min-height: 3.1rem; padding: 0.75rem 0.9rem; border: 1px solid #3a4544; border-radius: 0.75rem; background: #242a2b; color: #cdd5d4; font-size: 0.88rem; font-weight: 800; text-decoration: none; }
+	.thread-actions button { font: inherit; cursor: pointer; }
 	.thread-actions .follow-up { border-color: #79ddc0; background: #79ddc0; color: #111315; }
+	.thread-actions .back, .thread-actions .scroll-to-bottom { justify-content: center; width: 3.1rem; min-width: 3.1rem; padding: 0; font-size: 1rem; }
 	.thread-actions span[aria-disabled] { cursor: not-allowed; opacity: 0.45; }
-	.thread-actions a:focus-visible { outline: 2px solid #79ddc0; outline-offset: 3px; }
+	.thread-actions a:focus-visible, .thread-actions button:focus-visible { outline: 2px solid #79ddc0; outline-offset: 3px; }
 	@keyframes spin { to { transform: rotate(360deg); } }
 	@media (prefers-reduced-motion: reduce) { .spinner, .agent-spinner { animation-duration: 1.8s; } }
 
