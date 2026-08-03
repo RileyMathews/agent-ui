@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import type { Snippet } from 'svelte';
 
 	let {
@@ -11,6 +12,7 @@
 		error,
 		rows = 4,
 		terminalHref,
+		fullPage = false,
 		children,
 		onsubmit
 	}: {
@@ -23,13 +25,19 @@
 		error?: string | null;
 		rows?: number;
 		terminalHref?: string;
+		fullPage?: boolean;
 		children?: Snippet;
 		onsubmit: (event: SubmitEvent) => void;
 	} = $props();
 
 	let textarea: HTMLTextAreaElement;
+	let keyboardOffset = $state(0);
 
 	function resizeTextarea() {
+		if (fullPage) {
+			textarea.style.overflowY = 'auto';
+			return;
+		}
 		textarea.style.height = 'auto';
 		textarea.style.height = `${Math.min(textarea.scrollHeight, 240)}px`;
 		textarea.style.overflowY = textarea.scrollHeight > 240 ? 'auto' : 'hidden';
@@ -41,9 +49,35 @@
 		const frame = requestAnimationFrame(resizeTextarea);
 		return () => cancelAnimationFrame(frame);
 	});
+
+	onMount(() => {
+		if (!fullPage) return;
+
+		const viewport = window.visualViewport;
+		function updateViewport() {
+			keyboardOffset = viewport
+				? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+				: 0;
+		}
+
+		updateViewport();
+		window.addEventListener('resize', updateViewport);
+		viewport?.addEventListener('resize', updateViewport);
+		viewport?.addEventListener('scroll', updateViewport);
+
+		return () => {
+			window.removeEventListener('resize', updateViewport);
+			viewport?.removeEventListener('resize', updateViewport);
+			viewport?.removeEventListener('scroll', updateViewport);
+		};
+	});
 </script>
 
-<form {onsubmit}>
+<form
+	class:full-page={fullPage}
+	style={`--keyboard-offset: ${keyboardOffset}px;`}
+	{onsubmit}
+>
 	<label for="prompt-composer">{label}</label>
 	<textarea
 		bind:this={textarea}
@@ -55,19 +89,21 @@
 		{disabled}
 	></textarea>
 
-	{#if children}{@render children()}{/if}
-	{#if error}<p class="error" role="alert">{error}</p>{/if}
+	<div class="bottom-controls">
+		{#if children}{@render children()}{/if}
+		{#if error}<p class="error" role="alert">{error}</p>{/if}
 
-	<div class="actions">
-		{#if terminalHref}
-			<a class="terminal" href={terminalHref} aria-label="Open terminal" title="Open terminal">
-				<span aria-hidden="true">&gt;_</span>
-			</a>
-		{/if}
-		<button type="submit" disabled={disabled || submitDisabled || !value.trim()}>
-			{submitLabel}
-			<span aria-hidden="true">→</span>
-		</button>
+		<div class="actions">
+			{#if terminalHref}
+				<a class="terminal" href={terminalHref} aria-label="Open terminal" title="Open terminal">
+					<span aria-hidden="true">&gt;_</span>
+				</a>
+			{/if}
+			<button type="submit" disabled={disabled || submitDisabled || !value.trim()}>
+				{submitLabel}
+				<span aria-hidden="true">→</span>
+			</button>
+		</div>
 	</div>
 </form>
 
@@ -84,6 +120,9 @@
 	button span { font-size: 1.1rem; }
 	.terminal { display: grid; flex: 0 0 3.2rem; place-items: center; border: 1px solid #3a4544; border-radius: 0.7rem; background: #242a2b; color: #cdd5d4; font-family: ui-monospace, monospace; font-size: 0.78rem; font-weight: 800; text-decoration: none; }
 	button:disabled { cursor: not-allowed; opacity: 0.42; }
+	form.full-page { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+	.full-page textarea { height: 12rem; min-height: 12rem; max-height: 12rem; padding: 1rem 0.25rem; overflow-y: auto; }
+	.full-page .bottom-controls { position: fixed; z-index: 1; right: 1rem; bottom: var(--keyboard-offset); left: 1rem; padding: 0.7rem 0 max(0.7rem, env(safe-area-inset-bottom)); background: #111315; }
 	@media (hover: hover) { button:not(:disabled):hover { background: #91e7ce; } .terminal:hover { border-color: #5b6d6a; background: #2d3535; } }
-	@media (min-width: 40rem) { form { padding: 0.8rem; } }
+	@media (min-width: 40rem) { form { padding: 0.8rem; } .full-page .bottom-controls { right: max(1.5rem, calc((100vw - 43rem) / 2)); left: max(1.5rem, calc((100vw - 43rem) / 2)); } }
 </style>

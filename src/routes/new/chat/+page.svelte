@@ -113,9 +113,6 @@
 <main>
 	<header>
 		<a class="back" href="/new">Choose another directory</a>
-		<p class="eyebrow">New thread</p>
-		<h1>What do you want to build?</h1>
-		{#if directory}<p class="directory">{directory}</p>{/if}
 	</header>
 
 	{#if !directory}
@@ -132,6 +129,7 @@
 			label="Initial prompt"
 			placeholder="Describe the task, bug, or idea..."
 			rows={7}
+			fullPage
 			disabled={submitting}
 			submitDisabled={!modelValue || !agent}
 			submitLabel={submitting ? 'Starting thread...' : 'Start thread'}
@@ -147,13 +145,10 @@
 	:global(*) { box-sizing: border-box; }
 	:global(body) { margin: 0; min-width: 20rem; background: #111315; color: #f1f3f3; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
 	main { max-width: 46rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
-	header { margin-bottom: 1.5rem; }
-	.back { display: inline-block; margin-bottom: 1.75rem; color: #aeb8b7; font-size: 0.85rem; text-decoration: none; }
+	header { margin-bottom: 0.25rem; }
+	.back { display: inline-block; color: #aeb8b7; font-size: 0.85rem; text-decoration: none; }
 	.back::before { content: '← '; }
 	a:focus-visible { outline: 2px solid #79ddc0; outline-offset: 3px; }
-	.eyebrow { margin: 0 0 0.4rem; color: #79ddc0; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
-	h1 { max-width: 12ch; margin: 0; font-size: clamp(2rem, 8vw, 2.75rem); letter-spacing: -0.055em; line-height: 1; }
-	.directory { margin: 0.85rem 0 0; color: #788382; font-family: ui-monospace, monospace; font-size: 0.72rem; overflow-wrap: anywhere; }
 	.status { margin: 0; padding: 1rem 1.1rem; border: 1px solid #2c3334; border-radius: 0.75rem; background: #1a1e20; color: #aeb8b7; }
 	.status.error { display: grid; gap: 0.55rem; border-color: #603638; color: #ffb4b8; }
 	.status a { width: fit-content; color: #79ddc0; font-size: 0.85rem; }
