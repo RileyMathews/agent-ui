@@ -2,10 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import type { Event, Part, SessionMessagesResponse, TextPart, ToolPart } from '@opencode-ai/sdk/client';
-	import type { Agent, AppAgentsResponse, Provider, ProviderListResponse, Session } from '@opencode-ai/sdk/v2/client';
-	import { opencode, opencodeV2 } from '$lib/opencode';
-	import PromptComposer from '$lib/PromptComposer.svelte';
-	import ChatOptions from '$lib/ChatOptions.svelte';
+	import { opencode } from '$lib/opencode';
 
 	type HistoryMessage = SessionMessagesResponse[number];
 	type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'offline';
@@ -16,15 +13,9 @@
 	let loading = $state(true);
 	let connectionState = $state<ConnectionState>('connecting');
 	let directory = $state<string | undefined>();
-	let prompt = $state('');
-	let submitting = $state(false);
-	let promptError = $state<string | null>(null);
-	let providers = $state<Provider[]>([]);
-	let agents = $state<Agent[]>([]);
-	let modelValue = $state('');
-	let agent = $state('');
-	let variant = $state('');
-	let optionsLoading = $state(true);
+	const terminalHref = $derived(directory
+		? `/terminal?${new URLSearchParams({ directory: directory ?? '', returnTo: `/session/${encodeURIComponent(sessionID ?? '')}` })}`
+		: undefined);
 
 	function textParts(parts: Part[]): TextPart[] {
 		return parts.filter((part): part is TextPart => part.type === 'text' && !part.ignored);
@@ -53,38 +44,57 @@
 			: stringInput(part, 'description') ?? 'Sub-agent task';
 	}
 
-	function subAgentStatus(part: ToolPart) {
+	function toolStatus(part: ToolPart) {
 		if (part.state.status === 'pending') return 'Queued';
 		if (part.state.status === 'running') return 'Running';
 		if (part.state.status === 'completed') return 'Finished';
 		return 'Failed';
 	}
 
-	function modelOptionValue(providerID: string, modelID: string) {
-		return JSON.stringify({ providerID, modelID });
-	}
+	function toolDetail(part: ToolPart): string {
+		const input = part.state.input ?? {};
+		const str = (key: string) => typeof input[key] === 'string' ? (input[key] as string) : undefined;
+		const summarize = (value: string) => value.replace(/\s+/g, ' ').trim();
 
-	async function submitFollowUp(event: SubmitEvent) {
-		event.preventDefault();
-		if (!sessionID || !directory || !modelValue || !agent || !prompt.trim() || submitting) return;
-
-		submitting = true;
-		promptError = null;
-		try {
-			const model = JSON.parse(modelValue) as { providerID: string; modelID: string };
-			await opencodeV2.session.promptAsync({
-				sessionID,
-				directory,
-				model,
-				agent,
-				variant: variant || undefined,
-				parts: [{ type: 'text', text: prompt.trim() }]
-			});
-			prompt = '';
-		} catch (cause) {
-			promptError = cause instanceof Error ? cause.message : 'Unable to send the follow-up.';
-		} finally {
-			submitting = false;
+		switch (part.tool) {
+			case 'bash': {
+				const command = str('command');
+				return command ? summarize(`$ ${command}`) : '';
+			}
+			case 'read':
+			case 'write':
+			case 'edit':
+			case 'patch': {
+				const file = str('filePath') ?? str('file') ?? str('path');
+				return file ? summarize(file) : '';
+			}
+			case 'glob': {
+				const pattern = str('pattern') ?? '';
+				const path = str('path');
+				return summarize(path ? `${path}: ${pattern}` : pattern);
+			}
+			case 'grep': {
+				const pattern = str('pattern') ?? '';
+				const path = str('path');
+				const include = str('include');
+				const bits = [pattern];
+				if (path) bits.push(`in ${path}`);
+				if (include) bits.push(`(${include})`);
+				return summarize(bits.join(' '));
+			}
+			case 'webfetch':
+				return summarize(str('url') ?? '');
+			case 'websearch':
+				return summarize(str('query') ?? '');
+			case 'todowrite': {
+				const todos = input['todos'];
+				if (Array.isArray(todos)) return `${todos.length} ${todos.length === 1 ? 'todo' : 'todos'}`;
+				return '';
+			}
+			case 'skill':
+				return summarize(str('name') ?? '');
+			default:
+				return '';
 		}
 	}
 
@@ -207,45 +217,6 @@
 			await refreshMessages();
 			connect();
 
-			if (!directory) {
-				optionsLoading = false;
-				return;
-			}
-
-			try {
-				const [providerResponse, agentResponse, session] = await Promise.all([
-					opencodeV2.provider.list({ directory }) as unknown as Promise<ProviderListResponse>,
-					opencodeV2.app.agents({ directory }) as unknown as Promise<AppAgentsResponse>,
-					opencodeV2.session.get({ sessionID: id, directory }) as unknown as Promise<Session>
-				]);
-				const connected = new Set(providerResponse.connected);
-				providers = providerResponse.all.filter(
-					(provider) => connected.has(provider.id) && Object.keys(provider.models).length > 0
-				);
-				agents = agentResponse.filter(
-					(candidate) => !candidate.hidden && (candidate.mode === 'primary' || candidate.mode === 'all')
-				);
-
-				const sessionModel = session.model && providers.some(
-					(provider) => provider.id === session.model?.providerID && provider.models[session.model.id]
-				) ? session.model : undefined;
-				const provider = providers[0];
-				const fallbackModelID = providerResponse.default[provider?.id ?? ''] ?? Object.keys(provider?.models ?? {})[0];
-				if (sessionModel) {
-					modelValue = modelOptionValue(sessionModel.providerID, sessionModel.id);
-					const model = providers.find((provider) => provider.id === sessionModel.providerID)?.models[sessionModel.id];
-					variant = sessionModel.variant && model?.variants?.[sessionModel.variant] ? sessionModel.variant : '';
-				} else if (provider && fallbackModelID) {
-					modelValue = modelOptionValue(provider.id, fallbackModelID);
-				}
-				agent = agents.some((candidate) => candidate.name === session.agent)
-					? session.agent ?? ''
-					: agents.find((candidate) => candidate.name === 'build')?.name ?? agents[0]?.name ?? '';
-			} catch (cause) {
-				promptError = cause instanceof Error ? cause.message : 'Unable to load chat options.';
-			} finally {
-				optionsLoading = false;
-			}
 		}
 
 		function resume() {
@@ -331,7 +302,7 @@
 									<div class="agent-detail">
 										<div class="agent-heading">
 											<strong>{subAgentTitle(part)}</strong>
-											<span class="agent-status">{subAgentStatus(part)}</span>
+											<span class="agent-status">{toolStatus(part)}</span>
 										</div>
 										<p>{stringInput(part, 'subagent_type') ?? 'agent'}</p>
 									</div>
@@ -340,7 +311,26 @@
 						</div>
 					{/if}
 					{#if otherTools.length > 0}
-						<p class="tools">{otherTools.map((part) => part.tool).join(' · ')}</p>
+						<ul class="tools" aria-label="Tool calls">
+							{#each otherTools as part (part.id)}
+								<li class="tool" class:running={part.state.status === 'running'} class:error-state={part.state.status === 'error'}>
+									<span class="tool-mark" aria-hidden="true">
+										{#if part.state.status === 'running'}
+											<span class="tool-spinner"></span>
+										{:else if part.state.status === 'completed'}
+											<span class="tool-check">✓</span>
+										{:else if part.state.status === 'error'}
+											<span class="tool-error">!</span>
+										{:else}
+											<span class="tool-dot"></span>
+										{/if}
+									</span>
+									<span class="tool-name">{part.tool}</span>
+									<span class="tool-detail">{toolDetail(part)}</span>
+									<span class="tool-status">{toolStatus(part)}</span>
+								</li>
+							{/each}
+						</ul>
 					{/if}
 					{#if text.length === 0 && tools.length === 0}
 						<p class="empty">No displayable content.</p>
@@ -350,21 +340,14 @@
 		</section>
 	{/if}
 
-	<div class="composer" class:active={prompt.length > 0 || submitting || promptError !== null}>
-		<PromptComposer
-			bind:value={prompt}
-			onsubmit={submitFollowUp}
-			label="Follow-up prompt"
-			placeholder="Ask a follow-up..."
-			rows={3}
-			disabled={submitting || !directory || optionsLoading || connectionState === 'offline'}
-			submitDisabled={!modelValue || !agent}
-			submitLabel={submitting ? 'Sending...' : 'Send follow-up'}
-			error={promptError}
-		>
-			<ChatOptions {providers} {agents} bind:modelValue bind:agent bind:variant disabled={submitting || optionsLoading} />
-		</PromptComposer>
-	</div>
+	<footer class="thread-actions" aria-label="Thread actions">
+		{#if terminalHref}
+			<a href={terminalHref}>Terminal <span aria-hidden="true">&gt;_</span></a>
+		{:else}
+			<span aria-disabled="true">Terminal <span aria-hidden="true">&gt;_</span></span>
+		{/if}
+		<a class="follow-up" href={`/session/${encodeURIComponent(sessionID ?? '')}/prompt`}>Follow up <span aria-hidden="true">→</span></a>
+	</footer>
 </main>
 
 <style>
@@ -378,7 +361,7 @@
 		font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 	}
 
-	main { max-width: 46rem; margin: 0 auto; padding: 1.25rem 1rem 7rem; }
+	main { max-width: 46rem; margin: 0 auto; padding: 1.25rem 1rem 6.75rem; }
 	.connection { position: fixed; z-index: 10; top: max(0.65rem, env(safe-area-inset-top)); left: 50%; display: flex; align-items: center; gap: 0.45rem; padding: 0.45rem 0.7rem; border: 1px solid #3c4646; border-radius: 999px; background: rgb(26 30 32 / 0.94); color: #cbd2d1; box-shadow: 0 0.4rem 1.5rem rgb(0 0 0 / 0.3); font-size: 0.72rem; font-weight: 700; transform: translateX(-50%); backdrop-filter: blur(0.5rem); }
 	.spinner { width: 0.75rem; height: 0.75rem; border: 2px solid #53605e; border-top-color: #79ddc0; border-radius: 50%; animation: spin 0.8s linear infinite; }
 	header { margin-bottom: 1.75rem; }
@@ -410,17 +393,36 @@
 	.running .agent-status { color: #79ddc0; }
 	.error-state .agent-status { color: #ff9c9f; }
 	.agent-detail p { margin: 0.2rem 0 0; color: #74817f; font-family: ui-monospace, monospace; font-size: 0.68rem; }
-	.tools { margin: 0.9rem 0 0; color: #9ca9a7; font-family: ui-monospace, monospace; font-size: 0.75rem; overflow-wrap: anywhere; }
-	.user .tools { color: #d9ecff; }
+	.tools { display: grid; gap: 0.35rem; margin: 0.9rem 0 0; padding: 0; list-style: none; }
+	.tool { display: flex; align-items: center; gap: 0.5rem; min-width: 0; padding: 0.4rem 0.55rem; border: 1px solid #2c3334; border-radius: 0.5rem; background: #161a1c; font-family: ui-monospace, monospace; font-size: 0.72rem; }
+	.tool.running { border-color: #3e645a; background: #18201e; }
+	.tool.error-state { border-color: #603638; }
+	.tool-mark { display: grid; flex: 0 0 auto; width: 1.1rem; height: 1.1rem; place-items: center; color: #79ddc0; }
+	.tool-spinner { width: 0.6rem; height: 0.6rem; border: 2px solid #3d5c54; border-top-color: #79ddc0; border-radius: 50%; animation: spin 0.8s linear infinite; }
+	.tool-check, .tool-error { font-size: 0.7rem; font-weight: 800; }
+	.tool-error { color: #ff9c9f; }
+	.tool-dot { width: 0.35rem; height: 0.35rem; border-radius: 50%; background: #71807e; }
+	.tool-name { flex: 0 0 auto; color: #cdd5d4; font-weight: 700; }
+	.tool-detail { flex: 1 1 auto; min-width: 0; color: #9ca9a7; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+	.tool-status { flex: 0 0 auto; color: #8e9a98; font-size: 0.6rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
+	.running .tool-status { color: #79ddc0; }
+	.error-state .tool-status { color: #ff9c9f; }
+	.user .tool { border-color: rgb(255 255 255 / 0.18); background: rgb(0 0 0 / 0.15); }
+	.user .tool-name { color: #fff; }
+	.user .tool-detail { color: #d9ecff; }
+	.user .tool-status { color: #cfe3ff; }
 	.empty { margin: 0; color: #788382; font-style: italic; }
-	.composer { position: fixed; z-index: 5; bottom: 0; left: 50%; width: min(calc(100% - 2rem), 46rem); padding: 1rem 0 max(0rem, env(safe-area-inset-bottom)); background: linear-gradient(transparent, #111315 1rem); transition: transform 180ms ease-out; }
-	.composer:not(.active):not(:focus-within) { transform: translate(-50%, calc(100% - 4.75rem)); }
-	.composer:focus-within, .composer.active { transform: translate(-50%, 0); }
+	.thread-actions { position: fixed; z-index: 5; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 0.55rem; padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom)); border-top: 1px solid #293031; background: rgb(17 19 21 / 0.96); backdrop-filter: blur(0.6rem); }
+	.thread-actions a, .thread-actions span[aria-disabled] { display: flex; align-items: center; justify-content: space-between; min-height: 3.1rem; padding: 0.75rem 0.9rem; border: 1px solid #3a4544; border-radius: 0.75rem; background: #242a2b; color: #cdd5d4; font-size: 0.88rem; font-weight: 800; text-decoration: none; }
+	.thread-actions .follow-up { border-color: #79ddc0; background: #79ddc0; color: #111315; }
+	.thread-actions span[aria-disabled] { cursor: not-allowed; opacity: 0.45; }
+	.thread-actions a:focus-visible { outline: 2px solid #79ddc0; outline-offset: 3px; }
 	@keyframes spin { to { transform: rotate(360deg); } }
-	@media (prefers-reduced-motion: reduce) { .spinner, .agent-spinner { animation-duration: 1.8s; } .composer { transition: none; } }
+	@media (prefers-reduced-motion: reduce) { .spinner, .agent-spinner { animation-duration: 1.8s; } }
 
 	@media (min-width: 40rem) {
 		main { padding-right: 1.5rem; padding-left: 1.5rem; }
+		.thread-actions { padding-right: max(1.5rem, calc((100% - 43rem) / 2)); padding-left: max(1.5rem, calc((100% - 43rem) / 2)); }
 		article.user { padding: 1rem 1.25rem; }
 	}
 </style>

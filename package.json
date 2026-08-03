@@ -23,6 +23,7 @@
 		"vite": "^8.0.16"
 	},
 	"dependencies": {
-		"@opencode-ai/sdk": "^1.18.10"
+		"@opencode-ai/sdk": "^1.18.10",
+		"ghostty-web": "github:anomalyco/ghostty-web#83c0a07b8628b748aed073b232cb4b52a6ca11c1"
 	}
 }
