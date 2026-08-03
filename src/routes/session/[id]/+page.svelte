@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { page } from '$app/state';
 	import type { Event, Part, SessionMessagesResponse, TextPart, ToolPart } from '@opencode-ai/sdk/client';
 	import { opencode } from '$lib/opencode';
@@ -13,13 +13,68 @@
 	let loading = $state(true);
 	let connectionState = $state<ConnectionState>('connecting');
 	let directory = $state<string | undefined>();
+	let shouldAutoScroll = $state(true);
+	const SCROLL_BOTTOM_THRESHOLD = 64;
 	const terminalHref = $derived(directory
 		? `/terminal?${new URLSearchParams({ directory: directory ?? '', returnTo: `/session/${encodeURIComponent(sessionID ?? '')}` })}`
 		: undefined);
 
-	function scrollToBottom() {
-		window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+	function getScroller() {
+		if (typeof document === 'undefined') return null;
+		return document.scrollingElement ?? document.documentElement ?? document.body;
 	}
+
+	function isNearBottom() {
+		if (typeof document === 'undefined') return false;
+		const scroller = getScroller();
+		if (!scroller) return false;
+		const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+		if (maxScrollTop <= 0) return true;
+		return scroller.scrollTop >= maxScrollTop - SCROLL_BOTTOM_THRESHOLD;
+	}
+
+	function updateAutoScrollState() {
+		shouldAutoScroll = isNearBottom();
+	}
+
+	function scrollToBottom(behavior: ScrollBehavior = 'auto') {
+		const scroller = getScroller();
+		if (!scroller) return;
+		scroller.scrollTo({ top: scroller.scrollHeight, behavior });
+	}
+
+	function maybeAutoScroll(behavior: ScrollBehavior = 'auto') {
+		if (!shouldAutoScroll) return;
+		void (async () => {
+			await tick();
+			await tick();
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					scrollToBottom(behavior);
+				});
+			});
+		})();
+	}
+
+	async function scrollToBottomAfterRender(behavior: ScrollBehavior = 'auto') {
+		await tick();
+		await tick();
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				scrollToBottom(behavior);
+			});
+		});
+	}
+
+	function scrollToBottomManually() {
+		shouldAutoScroll = true;
+		void maybeAutoScroll('smooth');
+	}
+
+	$effect(() => {
+		messages;
+		maybeAutoScroll();
+	});
 
 	function textParts(parts: Part[]): TextPart[] {
 		return parts.filter((part): part is TextPart => part.type === 'text' && !part.ignored);
@@ -157,6 +212,7 @@
 		let disposed = false;
 
 		async function refreshMessages() {
+			const isFirstLoad = loading;
 			try {
 				// The generated SDK types do not preserve the client's responseStyle setting.
 				messages = (await opencode.session.messages({
@@ -167,6 +223,9 @@
 			} catch (cause) {
 				if (!disposed) error = cause instanceof Error ? cause.message : 'Unable to load session history.';
 			} finally {
+				if (!disposed && isFirstLoad && !error) {
+					await scrollToBottomAfterRender();
+				}
 				if (!disposed) loading = false;
 			}
 		}
@@ -256,6 +315,8 @@
 	<title>Session history</title>
 	<meta name="theme-color" content="#111315" />
 </svelte:head>
+
+<svelte:window on:scroll={updateAutoScrollState} on:resize={updateAutoScrollState} />
 
 <main>
 	{#if connectionState !== 'connected'}
@@ -351,7 +412,7 @@
 			<span class="terminal" aria-disabled="true">Terminal <span aria-hidden="true">&gt;_</span></span>
 		{/if}
 		<a class="follow-up" href={`/session/${encodeURIComponent(sessionID ?? '')}/prompt`}>Follow up <span aria-hidden="true">→</span></a>
-		<button class="scroll-to-bottom" onclick={scrollToBottom} aria-label="Scroll to bottom" title="Scroll to bottom"><span aria-hidden="true">↓</span></button>
+		<button class="scroll-to-bottom" onclick={scrollToBottomManually} aria-label="Scroll to bottom" title="Scroll to bottom"><span aria-hidden="true">↓</span></button>
 	</footer>
 </main>
 
