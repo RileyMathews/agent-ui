@@ -1,18 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { browser } from '$app/environment';
 	import type { Event, Part, SessionMessagesResponse, TextPart, ToolPart } from '@opencode-ai/sdk/client';
-	import type { Agent, AppAgentsResponse, Provider, ProviderListResponse, Session } from '@opencode-ai/sdk/v2/client';
-	import { opencode, opencodeV2 } from '$lib/opencode';
-	import PromptComposer from '$lib/PromptComposer.svelte';
-	import ChatOptions from '$lib/ChatOptions.svelte';
+	import { opencode } from '$lib/opencode';
 
 	type HistoryMessage = SessionMessagesResponse[number];
 	type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'offline';
 
 	const sessionID = page.params.id;
-	const draftKey = `agent-ui:prompt:session:${sessionID}`;
 	let messages = $state<HistoryMessage[]>([]);
 	let error = $state<string | null>(null);
 	let loading = $state(true);
@@ -21,20 +16,6 @@
 	const terminalHref = $derived(directory
 		? `/terminal?${new URLSearchParams({ directory: directory ?? '', returnTo: `/session/${encodeURIComponent(sessionID ?? '')}` })}`
 		: undefined);
-	let prompt = $state(browser ? sessionStorage.getItem(draftKey) ?? '' : '');
-	let submitting = $state(false);
-	let promptError = $state<string | null>(null);
-	let providers = $state<Provider[]>([]);
-	let agents = $state<Agent[]>([]);
-	let modelValue = $state('');
-	let agent = $state('');
-	let variant = $state('');
-	let optionsLoading = $state(true);
-
-	$effect(() => {
-		if (!browser) return;
-		sessionStorage.setItem(draftKey, prompt);
-	});
 
 	function textParts(parts: Part[]): TextPart[] {
 		return parts.filter((part): part is TextPart => part.type === 'text' && !part.ignored);
@@ -68,34 +49,6 @@
 		if (part.state.status === 'running') return 'Running';
 		if (part.state.status === 'completed') return 'Finished';
 		return 'Failed';
-	}
-
-	function modelOptionValue(providerID: string, modelID: string) {
-		return JSON.stringify({ providerID, modelID });
-	}
-
-	async function submitFollowUp(event: SubmitEvent) {
-		event.preventDefault();
-		if (!sessionID || !directory || !modelValue || !agent || !prompt.trim() || submitting) return;
-
-		submitting = true;
-		promptError = null;
-		try {
-			const model = JSON.parse(modelValue) as { providerID: string; modelID: string };
-			await opencodeV2.session.promptAsync({
-				sessionID,
-				directory,
-				model,
-				agent,
-				variant: variant || undefined,
-				parts: [{ type: 'text', text: prompt.trim() }]
-			});
-			prompt = '';
-		} catch (cause) {
-			promptError = cause instanceof Error ? cause.message : 'Unable to send the follow-up.';
-		} finally {
-			submitting = false;
-		}
 	}
 
 	function applyEvent(event: Event) {
@@ -217,45 +170,6 @@
 			await refreshMessages();
 			connect();
 
-			if (!directory) {
-				optionsLoading = false;
-				return;
-			}
-
-			try {
-				const [providerResponse, agentResponse, session] = await Promise.all([
-					opencodeV2.provider.list({ directory }) as unknown as Promise<ProviderListResponse>,
-					opencodeV2.app.agents({ directory }) as unknown as Promise<AppAgentsResponse>,
-					opencodeV2.session.get({ sessionID: id, directory }) as unknown as Promise<Session>
-				]);
-				const connected = new Set(providerResponse.connected);
-				providers = providerResponse.all.filter(
-					(provider) => connected.has(provider.id) && Object.keys(provider.models).length > 0
-				);
-				agents = agentResponse.filter(
-					(candidate) => !candidate.hidden && (candidate.mode === 'primary' || candidate.mode === 'all')
-				);
-
-				const sessionModel = session.model && providers.some(
-					(provider) => provider.id === session.model?.providerID && provider.models[session.model.id]
-				) ? session.model : undefined;
-				const provider = providers[0];
-				const fallbackModelID = providerResponse.default[provider?.id ?? ''] ?? Object.keys(provider?.models ?? {})[0];
-				if (sessionModel) {
-					modelValue = modelOptionValue(sessionModel.providerID, sessionModel.id);
-					const model = providers.find((provider) => provider.id === sessionModel.providerID)?.models[sessionModel.id];
-					variant = sessionModel.variant && model?.variants?.[sessionModel.variant] ? sessionModel.variant : '';
-				} else if (provider && fallbackModelID) {
-					modelValue = modelOptionValue(provider.id, fallbackModelID);
-				}
-				agent = agents.some((candidate) => candidate.name === session.agent)
-					? session.agent ?? ''
-					: agents.find((candidate) => candidate.name === 'build')?.name ?? agents[0]?.name ?? '';
-			} catch (cause) {
-				promptError = cause instanceof Error ? cause.message : 'Unable to load chat options.';
-			} finally {
-				optionsLoading = false;
-			}
 		}
 
 		function resume() {
@@ -360,22 +274,14 @@
 		</section>
 	{/if}
 
-	<div class="composer" class:active={prompt.length > 0 || submitting || promptError !== null}>
-		<PromptComposer
-			bind:value={prompt}
-			onsubmit={submitFollowUp}
-			label="Follow-up prompt"
-			placeholder="Ask a follow-up..."
-			rows={3}
-			disabled={submitting || !directory || optionsLoading || connectionState === 'offline'}
-			submitDisabled={!modelValue || !agent}
-			submitLabel={submitting ? 'Sending...' : 'Send follow-up'}
-			error={promptError}
-			{terminalHref}
-		>
-			<ChatOptions {providers} {agents} bind:modelValue bind:agent bind:variant disabled={submitting || optionsLoading} />
-		</PromptComposer>
-	</div>
+	<footer class="thread-actions" aria-label="Thread actions">
+		{#if terminalHref}
+			<a href={terminalHref}>Terminal <span aria-hidden="true">&gt;_</span></a>
+		{:else}
+			<span aria-disabled="true">Terminal <span aria-hidden="true">&gt;_</span></span>
+		{/if}
+		<a class="follow-up" href={`/session/${encodeURIComponent(sessionID ?? '')}/prompt`}>Follow up <span aria-hidden="true">→</span></a>
+	</footer>
 </main>
 
 <style>
@@ -389,7 +295,7 @@
 		font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 	}
 
-	main { max-width: 46rem; margin: 0 auto; padding: 1.25rem 1rem 7rem; }
+	main { max-width: 46rem; margin: 0 auto; padding: 1.25rem 1rem 6.75rem; }
 	.connection { position: fixed; z-index: 10; top: max(0.65rem, env(safe-area-inset-top)); left: 50%; display: flex; align-items: center; gap: 0.45rem; padding: 0.45rem 0.7rem; border: 1px solid #3c4646; border-radius: 999px; background: rgb(26 30 32 / 0.94); color: #cbd2d1; box-shadow: 0 0.4rem 1.5rem rgb(0 0 0 / 0.3); font-size: 0.72rem; font-weight: 700; transform: translateX(-50%); backdrop-filter: blur(0.5rem); }
 	.spinner { width: 0.75rem; height: 0.75rem; border: 2px solid #53605e; border-top-color: #79ddc0; border-radius: 50%; animation: spin 0.8s linear infinite; }
 	header { margin-bottom: 1.75rem; }
@@ -424,14 +330,17 @@
 	.tools { margin: 0.9rem 0 0; color: #9ca9a7; font-family: ui-monospace, monospace; font-size: 0.75rem; overflow-wrap: anywhere; }
 	.user .tools { color: #d9ecff; }
 	.empty { margin: 0; color: #788382; font-style: italic; }
-	.composer { position: fixed; z-index: 5; bottom: 0; left: 50%; width: min(calc(100% - 2rem), 46rem); padding: 1rem 0 max(0rem, env(safe-area-inset-bottom)); background: linear-gradient(transparent, #111315 1rem); transition: transform 180ms ease-out; }
-	.composer:not(.active):not(:focus-within) { transform: translate(-50%, calc(100% - 4.75rem)); }
-	.composer:focus-within, .composer.active { transform: translate(-50%, 0); }
+	.thread-actions { position: fixed; z-index: 5; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 0.55rem; padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom)); border-top: 1px solid #293031; background: rgb(17 19 21 / 0.96); backdrop-filter: blur(0.6rem); }
+	.thread-actions a, .thread-actions span[aria-disabled] { display: flex; align-items: center; justify-content: space-between; min-height: 3.1rem; padding: 0.75rem 0.9rem; border: 1px solid #3a4544; border-radius: 0.75rem; background: #242a2b; color: #cdd5d4; font-size: 0.88rem; font-weight: 800; text-decoration: none; }
+	.thread-actions .follow-up { border-color: #79ddc0; background: #79ddc0; color: #111315; }
+	.thread-actions span[aria-disabled] { cursor: not-allowed; opacity: 0.45; }
+	.thread-actions a:focus-visible { outline: 2px solid #79ddc0; outline-offset: 3px; }
 	@keyframes spin { to { transform: rotate(360deg); } }
-	@media (prefers-reduced-motion: reduce) { .spinner, .agent-spinner { animation-duration: 1.8s; } .composer { transition: none; } }
+	@media (prefers-reduced-motion: reduce) { .spinner, .agent-spinner { animation-duration: 1.8s; } }
 
 	@media (min-width: 40rem) {
 		main { padding-right: 1.5rem; padding-left: 1.5rem; }
+		.thread-actions { padding-right: max(1.5rem, calc((100% - 43rem) / 2)); padding-left: max(1.5rem, calc((100% - 43rem) / 2)); }
 		article.user { padding: 1rem 1.25rem; }
 	}
 </style>
