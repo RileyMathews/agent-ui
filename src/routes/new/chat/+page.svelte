@@ -68,6 +68,7 @@
 				parts: [{ type: 'text', text: prompt.trim() }]
 			});
 
+			sessionStorage.removeItem(`agent-ui:prompt:new:${directory}`);
 			await goto(`/session/${encodeURIComponent(session.id)}`);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to start the thread.';
