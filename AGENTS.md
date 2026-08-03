@@ -20,3 +20,7 @@ Any time you finish a chnage here always open up a PR and use the deployment scr
 to my homelab server so that I can visually test and confirm the changes.
 Keep one PR for session thread. If I ask you to make follow up changes push them to the same PR
 you already opened.
+
+# Verification
+When verifying changes make use of the 'free' models exposed via opencode zen such as big pickle or any of the models with 'free' in their name. We don't need to worry about quality
+just that we get the verification of the UI.
