@@ -122,7 +122,7 @@
 	button:disabled { cursor: not-allowed; opacity: 0.42; }
 	form.full-page { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 	.full-page textarea { height: 12rem; min-height: 12rem; max-height: 12rem; padding: 1rem 0.25rem; overflow-y: auto; }
-	.full-page .bottom-controls { position: fixed; z-index: 1; right: 1rem; bottom: var(--keyboard-offset); left: 1rem; padding: 0.7rem 0 max(0.7rem, env(safe-area-inset-bottom)); background: #111315; }
+	.full-page .bottom-controls { position: sticky; z-index: 1; bottom: var(--keyboard-offset); padding: 0.7rem 1rem max(0.7rem, env(safe-area-inset-bottom)); background: #111315; }
 	@media (hover: hover) { button:not(:disabled):hover { background: #91e7ce; } .terminal:hover { border-color: #5b6d6a; background: #2d3535; } }
-	@media (min-width: 40rem) { form { padding: 0.8rem; } .full-page .bottom-controls { right: max(1.5rem, calc((100vw - 43rem) / 2)); left: max(1.5rem, calc((100vw - 43rem) / 2)); } }
+	@media (min-width: 40rem) { form { padding: 0.8rem; } .full-page .bottom-controls { padding-right: 1.5rem; padding-left: 1.5rem; } }
 </style>
