@@ -14,3 +14,7 @@ We are still in early poc mode getting the project off the ground here.
 * The server OpenAPI specification is stored at `openapi.json`. It is reference-only; always interact with the OpenCode backend through the OpenCode SDK.
 * The upstream OpenCode repository is available as a read-only reference submodule at `opencode/`. Use it to clarify SDK and server behavior, but do not modify it as part of this application.
 * After every user-facing change, run the development server and verify the changed behavior with Playwright before reporting completion.
+
+# Workflow
+Any time you finish a chnage here always open up a PR and use the deployment script to deploy your changes
+to my homelab server so that I can visually test and confirm the changes.
