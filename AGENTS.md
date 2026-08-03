@@ -18,3 +18,5 @@ We are still in early poc mode getting the project off the ground here.
 # Workflow
 Any time you finish a chnage here always open up a PR and use the deployment script to deploy your changes
 to my homelab server so that I can visually test and confirm the changes.
+Keep one PR for session thread. If I ask you to make follow up changes push them to the same PR
+you already opened.
