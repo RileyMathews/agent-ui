@@ -89,13 +89,11 @@
 <main>
 	<header>
 		<a class="back" href={`/session/${encodeURIComponent(sessionID ?? '')}`}>Back to thread</a>
-		<p class="eyebrow">Follow up</p>
-		<h1>What should happen next?</h1>
 	</header>
 	{#if loading}
 		<p class="status">Loading models and agents...</p>
 	{:else}
-		<PromptComposer bind:value={prompt} onsubmit={submit} label="Follow-up prompt" placeholder="Ask a follow-up..." rows={7} disabled={submitting || !directory} submitDisabled={!modelValue || !agent} submitLabel={submitting ? 'Sending...' : 'Send follow-up'} {error} {terminalHref}>
+		<PromptComposer bind:value={prompt} onsubmit={submit} label="Follow-up prompt" placeholder="Ask a follow-up..." rows={7} fullPage disabled={submitting || !directory} submitDisabled={!modelValue || !agent} submitLabel={submitting ? 'Sending...' : 'Send follow-up'} {error} {terminalHref}>
 			<ChatOptions {providers} {agents} bind:modelValue bind:agent bind:variant disabled={submitting} />
 		</PromptComposer>
 	{/if}
@@ -104,14 +102,11 @@
 <style>
 	:global(*) { box-sizing: border-box; }
 	:global(body) { margin: 0; min-width: 20rem; background: #111315; color: #f1f3f3; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-	main { display: flex; min-height: 100dvh; max-width: 46rem; flex-direction: column; margin: 0 auto; padding: 1.25rem 1rem max(1.5rem, env(safe-area-inset-bottom)); }
-	header { margin-bottom: 1.5rem; }
-	.back { display: inline-block; margin-bottom: 1.75rem; color: #aeb8b7; font-size: 0.85rem; text-decoration: none; }
+	main { max-width: 46rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+	header { margin-bottom: 0.25rem; }
+	.back { display: inline-block; color: #aeb8b7; font-size: 0.85rem; text-decoration: none; }
 	.back::before { content: '← '; }
 	a:focus-visible { outline: 2px solid #79ddc0; outline-offset: 3px; }
-	.eyebrow { margin: 0 0 0.4rem; color: #79ddc0; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
-	h1 { max-width: 14ch; margin: 0; font-size: clamp(2rem, 8vw, 2.75rem); letter-spacing: -0.055em; line-height: 1; }
 	.status { margin: 0; padding: 1rem 1.1rem; border: 1px solid #2c3334; border-radius: 0.75rem; background: #1a1e20; color: #aeb8b7; }
-	:global(form) { margin-top: auto; }
 	@media (min-width: 40rem) { main { padding-right: 1.5rem; padding-left: 1.5rem; } }
 </style>
