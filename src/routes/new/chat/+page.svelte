@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import type { Agent, AppAgentsResponse, Provider, ProviderListResponse, Session } from '@opencode-ai/sdk/v2/client';
 	import { opencodeV2 } from '$lib/opencode';
@@ -9,29 +8,18 @@
 	import ChatOptions from '$lib/ChatOptions.svelte';
 
 	const directory = $derived(page.url.searchParams.get('directory'));
-	const draftKey = $derived(directory ? `agent-ui:prompt:new:${directory}` : undefined);
 	const terminalHref = $derived(directory
 		? `/terminal?${new URLSearchParams({ directory, returnTo: `/new/chat?${new URLSearchParams({ directory })}` })}`
 		: undefined);
-	function initialPrompt() {
-		if (!browser) return '';
-		const selectedDirectory = page.url.searchParams.get('directory');
-		return selectedDirectory ? sessionStorage.getItem(`agent-ui:prompt:new:${selectedDirectory}`) ?? '' : '';
-	}
 	let providers = $state<Provider[]>([]);
 	let agents = $state<Agent[]>([]);
-	let prompt = $state(initialPrompt());
+	let prompt = $state('');
 	let modelValue = $state('');
 	let agent = $state('');
 	let variant = $state('');
 	let loading = $state(true);
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
-
-	$effect(() => {
-		if (!browser || !draftKey) return;
-		sessionStorage.setItem(draftKey, prompt);
-	});
 
 	function modelOptionValue(providerID: string, modelID: string) {
 		return JSON.stringify({ providerID, modelID });
@@ -68,7 +56,6 @@
 				parts: [{ type: 'text', text: prompt.trim() }]
 			});
 
-			sessionStorage.removeItem(`agent-ui:prompt:new:${directory}`);
 			await goto(`/session/${encodeURIComponent(session.id)}`);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to start the thread.';
