@@ -46,13 +46,31 @@ export const projectConfigs: ProjectConfig[] = [
 		id: 'configs',
 		name: 'configs',
 		repository: 'ssh://git@git.rileymathews.com/riley/configs.git',
-		directory: '/home/riley/code/configs',
-		subprojects: [
-			{ id: 'nixos-config', name: 'nixos-config', path: 'nixos-config' },
-			{ id: 'dotfiles', name: 'dotfiles', path: 'dotfiles' },
-			{ id: 'agent-ui', name: 'agent-ui', path: 'agent-ui' },
-			{ id: 'agent-dev', name: 'agent-dev', path: 'ansible/agent-dev' }
-		]
+		directory: '/home/riley/code/configs'
+	},
+	{
+		id: 'nixos-config',
+		name: 'nixos-config',
+		repository: 'ssh://git@git.rileymathews.com/riley/nixos-config.git',
+		directory: '/home/riley/code/nixos-config'
+	},
+	{
+		id: 'dotfiles',
+		name: 'dotfiles',
+		repository: 'ssh://git@git.rileymathews.com/riley/dotfiles.git',
+		directory: '/home/riley/code/dotfiles'
+	},
+	{
+		id: 'agent-ui',
+		name: 'agent-ui',
+		repository: 'ssh://git@git.rileymathews.com/riley/agent-ui.git',
+		directory: '/home/riley/code/agent-ui'
+	},
+	{
+		id: 'agent-dev',
+		name: 'agent-dev',
+		repository: 'ssh://git@git.rileymathews.com/riley/agent-dev.git',
+		directory: '/home/riley/code/agent-dev'
 	},
 	{
 		id: 'tedlib',
