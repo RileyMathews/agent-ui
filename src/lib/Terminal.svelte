@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { FitAddon, Ghostty, Terminal as GhosttyTerminal } from 'ghostty-web';
-	import { opencodeV2, OPENCODE_SERVER_URL } from '$lib/opencode';
+	import { getOpencodeV2 } from '$lib/opencode';
 
 	type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'offline' | 'exited' | 'error';
 	type Disposable = { dispose(): void };
@@ -9,10 +9,12 @@
 	let {
 		ptyID,
 		directory,
+		serverUrl,
 		onstate
 	}: {
 		ptyID: string;
 		directory: string;
+		serverUrl: string;
 		onstate?: (state: ConnectionState, message?: string) => void;
 	} = $props();
 
@@ -35,6 +37,8 @@
 	}
 
 	onMount(() => {
+		if (!serverUrl) return;
+		const opencodeV2 = getOpencodeV2(serverUrl);
 		let terminal: GhosttyTerminal | undefined;
 		let fit: FitAddon | undefined;
 		let socket: WebSocket | undefined;
@@ -171,7 +175,7 @@
 			try {
 				const connectTicket = await ticket();
 				if (disposed || document.hidden || socket) return;
-				const url = new URL(`/api/pty/${encodeURIComponent(ptyID)}/connect`, OPENCODE_SERVER_URL);
+				const url = new URL(`/api/pty/${encodeURIComponent(ptyID)}/connect`, serverUrl);
 				url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
 				url.searchParams.set('location[directory]', directory);
 				url.searchParams.set('cursor', String(cursor));
@@ -263,6 +267,7 @@
 				fit = new loaded.mod.FitAddon();
 				terminal.loadAddon(fit);
 				terminal.open(container);
+				// Keep Ghostty's hidden input from affecting the full-screen terminal layout.
 				if (terminal.textarea) terminal.textarea.style.position = 'fixed';
 				fit.fit();
 				fit.observeResize();

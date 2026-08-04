@@ -1,131 +1,87 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { listSessions } from '$lib/sessions';
+	import { page } from '$app/state';
+	import { getProject, projects, servers } from '$lib/config';
+	import { checkProject, type ProjectAvailability } from '$lib/sessions';
 
-	type Directory = {
-		path: string;
-		updated: number;
-	};
+	let projectID = $state(page.url.searchParams.get('project') ?? '');
+	let serverStates = $state<ProjectAvailability[]>([]);
+	let loading = $state(false);
+	let request = 0;
+	const project = $derived(getProject(projectID));
 
-	let directories = $state<Directory[]>([]);
-	let query = $state('');
-	let error = $state<string | null>(null);
-	let loading = $state(true);
-	const filteredDirectories = $derived.by(() => {
-		const search = query.trim().toLowerCase();
-		if (!search) return directories;
-		return directories
-			.map((directory) => ({ directory, score: fuzzyScore(directory.path.toLowerCase(), search) }))
-			.filter((result): result is { directory: Directory; score: number } => result.score !== null)
-			.sort((left, right) => left.score - right.score || right.directory.updated - left.directory.updated)
-			.map((result) => result.directory);
-	});
-
-	function directoryName(path: string) {
-		return path.split('/').filter(Boolean).at(-1) ?? path;
-	}
-
-	function fuzzyScore(candidate: string, search: string) {
-		const exact = candidate.indexOf(search);
-		if (exact !== -1) return exact;
-
-		let position = 0;
-		let score = candidate.length;
-		for (const character of search.replaceAll(' ', '')) {
-			const match = candidate.indexOf(character, position);
-			if (match === -1) return null;
-			score += match - position;
-			position = match + 1;
-		}
-		return score;
-	}
-
-	onMount(async () => {
-		try {
-			const unique = new Map<string, Directory>();
-
-			for (const session of await listSessions()) {
-				const path = session.location.directory;
-				if (!path || unique.has(path)) continue;
-				unique.set(path, { path, updated: session.time.updated });
-			}
-
-			directories = [...unique.values()].sort((left, right) => right.updated - left.updated);
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Unable to load directories.';
-		} finally {
+	async function checkServers() {
+		const selected = getProject(projectID);
+		serverStates = [];
+		if (!selected) return;
+		const activeRequest = ++request;
+		loading = true;
+		const next = await Promise.all(servers.map((server) => checkProject(selected, server)));
+		if (activeRequest === request) {
+			serverStates = next;
 			loading = false;
 		}
-	});
+	}
+
+	function selectProject(event: Event) {
+		projectID = (event.currentTarget as HTMLSelectElement).value;
+		void checkServers();
+	}
+
+	onMount(checkServers);
 </script>
 
-<svelte:head>
-	<title>Choose a directory</title>
-	<meta name="theme-color" content="#111315" />
-</svelte:head>
+<svelte:head><title>New thread</title><meta name="theme-color" content="#111315" /></svelte:head>
 
 <main>
-	<header>
-		<a class="back" href="/">Back to sessions</a>
-		<p class="eyebrow">New thread</p>
-		<h1>Choose a directory</h1>
-		<p class="intro">Select a directory where you have already used OpenCode.</p>
-	</header>
+	<header><a class="back" href={project ? `/project/${project.id}` : '/'}>Back</a><p class="eyebrow">New thread</p><h1>Choose a server</h1><p class="description">Select where this project should run.</p></header>
+	<label class="project-label" for="project">Project</label>
+	<select id="project" value={projectID} onchange={selectProject}>
+		<option value="" disabled>Select a project</option>
+		{#each projects as option}<option value={option.id}>{option.parentName ? `${option.parentName} / ${option.name}` : option.name}</option>{/each}
+	</select>
 
-	{#if loading}
-		<p class="status">Loading directories...</p>
-	{:else if error}
-		<p class="status error">{error}</p>
-	{:else if directories.length === 0}
-		<p class="status">No directories with sessions found.</p>
+	{#if !project}
+		<p class="status">Choose a project to check its servers.</p>
+	{:else if loading}
+		<p class="status">Checking {project.name} across servers...</p>
 	{:else}
-		<div class="search">
-			<label for="directory-search">Search directories</label>
-			<input id="directory-search" type="search" bind:value={query} placeholder="Search directories..." autocomplete="off" />
-			<span>{filteredDirectories.length} {filteredDirectories.length === 1 ? 'match' : 'matches'}</span>
-		</div>
-		{#if filteredDirectories.length === 0}
-			<p class="status">No directories match “{query}”.</p>
-		{:else}
-		<ul aria-label="Directories">
-			{#each filteredDirectories as directory (directory.path)}
-				<li>
-					<a href={`/new/chat?directory=${encodeURIComponent(directory.path)}`}>
-						<strong>{directoryName(directory.path)}</strong>
-						<span>{directory.path}</span>
-						<span class="arrow" aria-hidden="true">→</span>
-					</a>
+		<ul>
+			{#each serverStates as state (state.server.id)}
+				<li class:ready={state.available} class:error={!!state.error}>
+					{#if state.available}
+						<a href={`/new/chat?${new URLSearchParams({ project: project.id, server: state.server.id })}`}><strong>{state.server.name}</strong><span>{project.directory}</span><b>Continue →</b></a>
+					{:else}
+						<div><strong>{state.server.name}</strong><span>{state.error ? 'Server is unreachable.' : `No git checkout found at ${project.directory}.`}</span><b>{state.error ? 'Unavailable' : 'Checkout required'}</b></div>
+					{/if}
 				</li>
 			{/each}
 		</ul>
-		{/if}
 	{/if}
 </main>
 
 <style>
-	:global(*) { box-sizing: border-box; }
-	:global(body) { margin: 0; min-width: 20rem; background: #111315; color: #f1f3f3; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-	main { max-width: 46rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
-	header { margin-bottom: 1.75rem; }
-	.back { display: inline-block; margin-bottom: 1.75rem; color: #aeb8b7; font-size: 0.85rem; text-decoration: none; }
+	main { max-width: var(--content-width); margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+	header { margin-bottom: 1.25rem; }
+	.back { display: inline-block; margin-bottom: 1.75rem; color: var(--color-muted); font-size: 0.85rem; text-decoration: none; }
 	.back::before { content: '← '; }
-	.back:focus-visible, li a:focus-visible, input:focus-visible { outline: 2px solid #79ddc0; outline-offset: 3px; }
-	.eyebrow { margin: 0 0 0.4rem; color: #79ddc0; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+	.eyebrow { margin: 0 0 0.4rem; color: var(--color-accent); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
 	h1 { margin: 0; font-size: clamp(2rem, 8vw, 2.75rem); letter-spacing: -0.055em; line-height: 1; }
-	.intro { margin: 0.9rem 0 0; color: #aeb8b7; font-size: 0.9rem; line-height: 1.5; }
-	.status { margin: 0; padding: 1rem 1.1rem; border: 1px solid #2c3334; border-radius: 0.75rem; background: #1a1e20; color: #aeb8b7; }
-	.error { border-color: #603638; color: #ffb4b8; }
-	.search { position: relative; margin-bottom: 0.8rem; }
-	.search label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-	.search input { width: 100%; height: 3rem; padding: 0 5rem 0 0.9rem; border: 1px solid #343c3d; border-radius: 0.75rem; background: #1a1e20; color: #f1f3f3; font: inherit; font-size: 0.9rem; }
-	.search input::placeholder { color: #707a79; }
-	.search span { position: absolute; top: 50%; right: 0.9rem; color: #788382; font-family: inherit; font-size: 0.68rem; transform: translateY(-50%); }
-	ul { display: grid; gap: 0.6rem; margin: 0; padding: 0; list-style: none; }
-	li { overflow: hidden; border: 1px solid #2c3334; border-radius: 0.75rem; background: #191d1f; }
-	li a { position: relative; display: grid; gap: 0.3rem; padding: 1rem 3rem 1rem 1rem; color: inherit; text-decoration: none; }
-	strong { font-size: 1rem; letter-spacing: -0.015em; }
-	span { color: #8e9998; font-family: ui-monospace, monospace; font-size: 0.72rem; overflow-wrap: anywhere; }
-	.arrow { position: absolute; top: 50%; right: 1rem; color: #79ddc0; font-family: inherit; font-size: 1.15rem; transform: translateY(-50%); }
-	@media (hover: hover) { li:hover { border-color: #4a5956; background: #1d2224; } }
-	@media (min-width: 40rem) { main { padding-right: 1.5rem; padding-left: 1.5rem; } li a { padding: 1.15rem 3.25rem 1.15rem 1.25rem; } }
+	.description { margin: 0.8rem 0 0; color: var(--color-muted); font-size: 0.88rem; }
+	.project-label { display: block; margin-bottom: 0.4rem; color: #9ba6a4; font-size: 0.72rem; font-weight: 700; }
+	select { width: 100%; min-height: 3rem; margin-bottom: 1rem; padding: 0 0.85rem; border: 1px solid #343c3d; border-radius: 0.7rem; background: var(--color-panel); color: var(--color-text); font: inherit; }
+	.status { margin: 0; padding: 1rem 1.1rem; border: 1px solid var(--color-border); border-radius: 0.75rem; background: var(--color-panel); color: var(--color-muted); }
+	ul { display: grid; gap: 0.65rem; margin: 0; padding: 0; list-style: none; }
+	li { overflow: hidden; border: 1px solid #3a3430; border-radius: 0.75rem; background: var(--color-surface); }
+	li.ready { border-color: #34564d; }
+	li.error { border-color: #593638; }
+	li a, li > div { display: grid; gap: 0.3rem; padding: 1rem; color: inherit; text-decoration: none; }
+	li strong { font-family: ui-monospace, monospace; font-size: 0.82rem; }
+	li span { color: #899492; font-size: 0.72rem; line-height: 1.4; overflow-wrap: anywhere; }
+	li b { margin-top: 0.4rem; color: #ae935f; font-size: 0.7rem; text-transform: uppercase; }
+	li.ready b { color: var(--color-accent); }
+	li.error b { color: #ff9c9f; }
+	a:focus-visible, select:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+	@media (hover: hover) { li.ready:hover { background: #1d2422; } }
+	@media (min-width: 40rem) { main { padding-right: 1.5rem; padding-left: 1.5rem; } }
 </style>

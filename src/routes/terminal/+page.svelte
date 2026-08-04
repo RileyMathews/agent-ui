@@ -4,11 +4,13 @@
 	import { onMount } from 'svelte';
 	import type { Pty } from '@opencode-ai/sdk/v2/client';
 	import Terminal from '$lib/Terminal.svelte';
-	import { opencodeV2 } from '$lib/opencode';
+	import { getServer } from '$lib/config';
+	import { getOpencodeV2 } from '$lib/opencode';
 
 	type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'offline' | 'exited' | 'error';
 
 	const directory = $derived(page.url.searchParams.get('directory'));
+	const server = $derived(getServer(page.url.searchParams.get('server')));
 	const requestedReturnTo = $derived(page.url.searchParams.get('returnTo'));
 	const returnTo = $derived(requestedReturnTo?.startsWith('/') && !requestedReturnTo.startsWith('//') ? requestedReturnTo : '/');
 	let pty = $state<Pty | undefined>();
@@ -32,7 +34,8 @@
 	async function removeTerminal() {
 		if (!pty || removed) return;
 		removed = true;
-		await opencodeV2.v2.pty.remove({
+		if (!server) return;
+		await getOpencodeV2(server.url).v2.pty.remove({
 			ptyID: pty.id,
 			location: { directory: directory ?? undefined }
 		}).catch(() => undefined);
@@ -47,6 +50,12 @@
 
 	onMount(() => {
 		let disposed = false;
+		if (!server) {
+			connectionState = 'error';
+			detail = 'No server was selected';
+			return undefined;
+		}
+		const opencodeV2 = getOpencodeV2(server.url);
 		if (!directory) {
 			connectionState = 'error';
 			detail = 'No directory was selected';
@@ -91,7 +100,7 @@
 
 	<section class="screen">
 		{#if pty && directory}
-			<Terminal ptyID={pty.id} {directory} onstate={updateState} />
+			<Terminal ptyID={pty.id} {directory} serverUrl={server?.url ?? ''} onstate={updateState} />
 		{:else}
 			<div class="status" class:error={connectionState === 'error'}>
 				{#if connectionState === 'connecting'}<span class="spinner" aria-hidden="true"></span>{/if}
@@ -103,18 +112,18 @@
 </main>
 
 <style>
-	main { position: fixed; inset: 0; display: grid; min-width: 20rem; box-sizing: border-box; grid-template-rows: auto minmax(0, 1fr); padding-top: env(safe-area-inset-top); overflow: hidden; background: #0b0d0e; color: #d8dfdd; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+	main { position: fixed; inset: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); padding-top: env(safe-area-inset-top); overflow: hidden; background: #0b0d0e; color: #d8dfdd; }
 	header { display: flex; align-items: center; min-height: 3.25rem; padding: 0.35rem max(0.5rem, env(safe-area-inset-right)) 0.35rem max(0.5rem, env(safe-area-inset-left)); border-bottom: 1px solid #252b2c; background: #111516; }
 	.close { display: grid; width: 2.5rem; height: 2.5rem; padding: 0; place-items: center; border: 0; border-radius: 0.7rem; background: #202627; color: #e6ebea; font: inherit; font-size: 1.2rem; cursor: pointer; }
-	.close:focus-visible, .status button:focus-visible { outline: 2px solid #79ddc0; outline-offset: 2px; }
+	.close:focus-visible, .status button:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 	.close:disabled { opacity: 0.5; }
 	.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 	.screen { min-width: 0; min-height: 0; padding-bottom: env(safe-area-inset-bottom); overflow: hidden; }
 	.status { display: grid; height: 100%; place-content: center; justify-items: center; gap: 0.8rem; color: #8c9795; font-size: 0.82rem; }
 	.status p { max-width: 28rem; margin: 0; padding: 0 1rem; text-align: center; overflow-wrap: anywhere; }
-	.status.error { color: #ffb4b8; }
-	.status button { padding: 0.7rem 1rem; border: 0; border-radius: 0.65rem; background: #79ddc0; color: #111315; font: inherit; font-weight: 800; }
-	.spinner { width: 1.1rem; height: 1.1rem; border: 2px solid #33403e; border-top-color: #79ddc0; border-radius: 50%; animation: spin 0.8s linear infinite; }
+	.status.error { color: var(--color-error); }
+	.status button { padding: 0.7rem 1rem; border: 0; border-radius: 0.65rem; background: var(--color-accent); color: var(--color-background); font: inherit; font-weight: 800; }
+	.spinner { width: 1.1rem; height: 1.1rem; border: 2px solid #33403e; border-top-color: var(--color-accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
 	@keyframes spin { to { transform: rotate(360deg); } }
-	@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.8s; } }
+	@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
 </style>

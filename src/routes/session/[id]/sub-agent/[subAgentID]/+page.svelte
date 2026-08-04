@@ -2,4 +2,4 @@
 	import ThreadView from '$lib/ThreadView.svelte';
 </script>
 
-<ThreadView />
+<ThreadView subAgent />

@@ -15,6 +15,12 @@ We are still in early poc mode getting the project off the ground here.
 * The upstream OpenCode repository is available as a read-only reference submodule at `opencode/`. Use it to clarify SDK and server behavior, but do not modify it as part of this application.
 * After every user-facing change, run the development server and verify the changed behavior with Playwright before reporting completion.
 
+# CSS
+* Keep document-wide resets, theme tokens, and body defaults in `src/app.css`, imported once by the root layout.
+* Keep component layout and presentation in scoped Svelte `<style>` blocks. Do not use `:global` to reach into another component; expose a class, prop, or CSS custom property instead.
+* Use narrowly anchored `:global(...)` selectors only for DOM Svelte cannot scope, such as sanitized `{@html}` output or third-party-generated elements.
+* Reuse the shared custom properties for established colors, content width, and focus rings instead of duplicating their literal values.
+
 # Workflow
 Any time you finish a chnage here always open up a PR and use the deployment script to deploy your changes
 to my homelab server so that I can visually test and confirm the changes.

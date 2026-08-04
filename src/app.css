@@ -1,0 +1,25 @@
+:root {
+	--color-background: #111315;
+	--color-surface: #191d1f;
+	--color-panel: #1a1e20;
+	--color-border: #2c3334;
+	--color-text: #f1f3f3;
+	--color-muted: #aeb8b7;
+	--color-accent: #79ddc0;
+	--color-error: #ffb4b8;
+	--content-width: 46rem;
+	--focus-ring: 2px solid var(--color-accent);
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--color-background);
+	color: var(--color-text);
+	font-family: ui-sans-serif, system-ui, sans-serif;
+}
