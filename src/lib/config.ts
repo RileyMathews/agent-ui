@@ -35,6 +35,11 @@ export const servers: Server[] = [
 		url: 'https://scottyopencode.rileymathews.com'
 	},
 	{
+		id: 'ds9opencode.rileymathews.com',
+		name: 'ds9opencode',
+		url: 'https://ds9opencode.rileymathews.com'
+	},
+	{
 		id: 'opencode.rileymathews.com',
 		name: 'opencode',
 		url: 'https://opencode.rileymathews.com'
