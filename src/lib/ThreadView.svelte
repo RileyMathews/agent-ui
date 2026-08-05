@@ -30,6 +30,7 @@
 	const query = server && project ? new URLSearchParams({ server: server.id, project: project.id }) : undefined;
 	const parentThreadHref = query ? `/session/${encodeURIComponent(parentSessionID ?? '')}?${query}` : '/';
 	const threadHref = $derived(query ? `/session/${encodeURIComponent(sessionID ?? '')}?${query}` : '/');
+	const detailsHref = $derived(query ? `/session/${encodeURIComponent(sessionID ?? '')}/details?${query}` : undefined);
 	const terminalHref = $derived(directory && server
 		? `/terminal?${new URLSearchParams({ directory: directory ?? '', server: server.id, returnTo: threadHref })}`
 		: undefined);
@@ -393,9 +394,12 @@
 				<strong>{sessionTitle}</strong>
 			{/if}
 		</div>
-		<button class="archive-session" type="button" onclick={archiveSession} disabled={archiving || !sessionLoaded || !directory || !server}>
-			{archiving ? 'Archiving...' : 'Archive'}
-		</button>
+		<div class="session-controls">
+			{#if detailsHref}<a class="details" href={detailsHref}>Details</a>{/if}
+			<button class="archive-session" type="button" onclick={archiveSession} disabled={archiving || !sessionLoaded || !directory || !server}>
+				{archiving ? 'Archiving...' : 'Archive'}
+			</button>
+		</div>
 	</nav>
 	{#if archiveError}<p class="archive-error" role="alert">{archiveError}</p>{/if}
 
@@ -517,6 +521,8 @@
 	.session-identity a, .session-identity strong { display: block; min-height: 0; padding: 0; border: 0; background: none; color: var(--color-accent); font-size: 0.72rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 	.session-identity strong { color: #d7dddc; }
 	.archive-session { padding: 0 0.6rem; cursor: pointer; }
+	.session-controls { display: flex; gap: 0.4rem; }
+	.session-controls .details { display: grid; padding: 0 0.55rem; place-items: center; }
 	.archive-session:disabled { cursor: not-allowed; opacity: 0.55; }
 	.session-bar a:focus-visible, .session-bar button:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 	.archive-error { margin: -0.5rem 0 1rem; padding: 0.65rem 0.75rem; border: 1px solid #603638; border-radius: 0.6rem; background: #2a1d1e; color: var(--color-error); font-size: 0.72rem; }
