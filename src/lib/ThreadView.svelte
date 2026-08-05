@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import type { Event, Part, SessionMessagesResponse, TextPart, ToolPart } from '@opencode-ai/sdk/client';
+	import type { Event, Part, ReasoningPart, SessionMessagesResponse, TextPart, ToolPart } from '@opencode-ai/sdk/client';
 	import Markdown from '$lib/Markdown.svelte';
 	import { getProject, getServer } from '$lib/config';
 	import { getOpencode, getOpencodeV2 } from '$lib/opencode';
@@ -25,6 +25,7 @@
 	let sessionLoaded = $state(false);
 	let archiving = $state(false);
 	let archiveError = $state<string | null>(null);
+	let showReasoning = $state(false);
 	let main: HTMLElement;
 	let following = $state(true);
 	const query = server && project ? new URLSearchParams({ server: server.id, project: project.id }) : undefined;
@@ -65,6 +66,10 @@
 
 	function textParts(parts: Part[]): TextPart[] {
 		return parts.filter((part): part is TextPart => part.type === 'text' && !part.ignored);
+	}
+
+	function reasoningParts(parts: Part[]): ReasoningPart[] {
+		return parts.filter((part): part is ReasoningPart => part.type === 'reasoning');
 	}
 
 	function toolParts(parts: Part[]): ToolPart[] {
@@ -396,6 +401,9 @@
 		</div>
 		<div class="session-controls">
 			{#if detailsHref}<a class="details" href={detailsHref}>Details</a>{/if}
+			<button class="reasoning-toggle" type="button" onclick={() => showReasoning = !showReasoning} aria-pressed={showReasoning}>
+				Reasoning
+			</button>
 			<button class="archive-session" type="button" onclick={archiveSession} disabled={archiving || !sessionLoaded || !directory || !server}>
 				{archiving ? 'Archiving...' : 'Archive'}
 			</button>
@@ -425,10 +433,18 @@
 		<section aria-label="Session messages">
 			{#each messages as message (message.info.id)}
 				{@const text = textParts(message.parts)}
+				{@const reasoning = reasoningParts(message.parts)}
 				{@const tools = toolParts(message.parts)}
 				{@const subAgents = subAgentParts(tools)}
 				{@const otherTools = otherToolParts(tools)}
 				<article class:user={message.info.role === 'user'}>
+					{#if showReasoning && reasoning.length > 0}
+						<section class="reasoning" aria-label="Reasoning">
+							{#each reasoning as part (part.id)}
+								<p>{part.text}</p>
+							{/each}
+						</section>
+					{/if}
 					{#each text as part (part.id)}
 						{#if message.info.role === 'assistant'}
 							<Markdown source={part.text} />
@@ -523,6 +539,8 @@
 	.archive-session { padding: 0 0.6rem; cursor: pointer; }
 	.session-controls { display: flex; gap: 0.4rem; }
 	.session-controls .details { display: grid; padding: 0 0.55rem; place-items: center; }
+	.reasoning-toggle { padding: 0 0.55rem; cursor: pointer; }
+	.reasoning-toggle[aria-pressed="true"] { border-color: var(--color-accent); color: var(--color-accent); }
 	.archive-session:disabled { cursor: not-allowed; opacity: 0.55; }
 	.session-bar a:focus-visible, .session-bar button:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 	.archive-error { margin: -0.5rem 0 1rem; padding: 0.65rem 0.75rem; border: 1px solid #603638; border-radius: 0.6rem; background: #2a1d1e; color: var(--color-error); font-size: 0.72rem; }
@@ -538,6 +556,9 @@
 	article.user { justify-self: end; max-width: 90%; padding: 0.9rem 1rem; border-radius: 1.25rem 1.25rem 0.25rem; background: #1677e8; color: #fff; }
 	.message-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
 	.message-text + .message-text { margin-top: 0.75rem; }
+	.reasoning { margin-bottom: 0.85rem; padding: 0.7rem 0.8rem; border: 1px solid #4b3d68; border-radius: 0.7rem; background: #201d29; color: #d4c6ec; font-size: 0.8rem; line-height: 1.5; }
+	.reasoning p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+	.reasoning p + p { margin-top: 0.65rem; }
 	.sub-agents { display: grid; gap: 0.5rem; margin-top: 0.85rem; }
 	.sub-agent { display: flex; align-items: center; gap: 0.75rem; min-width: 0; padding: 0.75rem 0.8rem; border: 1px solid #303839; border-radius: 0.8rem; background: linear-gradient(135deg, #1d2224, #181c1e); box-shadow: 0 1px 0 rgb(255 255 255 / 0.035) inset; }
 	.sub-agent.linked { color: inherit; text-decoration: none; }
