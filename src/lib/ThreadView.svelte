@@ -2,10 +2,11 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import type { Event, Part, SessionMessagesResponse, TextPart, ToolPart } from '@opencode-ai/sdk/client';
+	import type { Event, Part, ReasoningPart, SessionMessagesResponse, TextPart, ToolPart } from '@opencode-ai/sdk/client';
 	import Markdown from '$lib/Markdown.svelte';
 	import { getProject, getServer } from '$lib/config';
 	import { getOpencode, getOpencodeV2 } from '$lib/opencode';
+	import { listPendingQuestions, questionEvent, type PendingQuestion } from '$lib/questions';
 
 	let { subAgent = false }: { subAgent?: boolean } = $props();
 
@@ -25,12 +26,15 @@
 	let sessionLoaded = $state(false);
 	let archiving = $state(false);
 	let archiveError = $state<string | null>(null);
+	let showReasoning = $state(false);
+	let pendingQuestions = $state<PendingQuestion[]>([]);
 	let main: HTMLElement;
 	let following = $state(true);
 	const query = server && project ? new URLSearchParams({ server: server.id, project: project.id }) : undefined;
 	const parentThreadHref = query ? `/session/${encodeURIComponent(parentSessionID ?? '')}?${query}` : '/';
 	const threadHref = $derived(query ? `/session/${encodeURIComponent(sessionID ?? '')}?${query}` : '/');
 	const detailsHref = $derived(query ? `/session/${encodeURIComponent(sessionID ?? '')}/details?${query}` : undefined);
+	const questionsHref = $derived(query && sessionID ? `/session/${encodeURIComponent(sessionID)}/questions?${query}` : undefined);
 	const terminalHref = $derived(directory && server
 		? `/terminal?${new URLSearchParams({ directory: directory ?? '', server: server.id, returnTo: threadHref })}`
 		: undefined);
@@ -65,6 +69,10 @@
 
 	function textParts(parts: Part[]): TextPart[] {
 		return parts.filter((part): part is TextPart => part.type === 'text' && !part.ignored);
+	}
+
+	function reasoningParts(parts: Part[]): ReasoningPart[] {
+		return parts.filter((part): part is ReasoningPart => part.type === 'reasoning');
 	}
 
 	function toolParts(parts: Part[]): ToolPart[] {
@@ -111,6 +119,21 @@
 		if (part.state.status === 'running') return 'Running';
 		if (part.state.status === 'completed') return 'Finished';
 		return 'Failed';
+	}
+
+	function applyQuestionEvent(event: unknown) {
+		const change = questionEvent(event);
+		if (!change) return;
+		if (change.type === 'asked') {
+			if (change.request.sessionID !== sessionID) return;
+			const index = pendingQuestions.findIndex((question) => question.id === change.request.id);
+			pendingQuestions = index === -1
+				? [...pendingQuestions, change.request]
+				: pendingQuestions.map((question, questionIndex) => questionIndex === index ? change.request : question);
+		} else {
+			if (change.sessionID !== sessionID) return;
+			pendingQuestions = pendingQuestions.filter((question) => question.id !== change.requestID);
+		}
 	}
 
 	function toolDetail(part: ToolPart): string {
@@ -161,6 +184,8 @@
 	}
 
 	function applyEvent(event: Event) {
+		applyQuestionEvent(event);
+
 		if (event.type === 'message.updated' && event.properties.info.sessionID === sessionID) {
 			const index = messages.findIndex((message) => message.info.id === event.properties.info.id);
 			if (index === -1) {
@@ -272,6 +297,7 @@
 			loading = false;
 			return undefined;
 		}
+		const serverUrl = server.url;
 
 		let controller: AbortController | undefined;
 		let everConnected = false;
@@ -292,6 +318,14 @@
 				if (!disposed) error = cause instanceof Error ? cause.message : 'Unable to load session history.';
 			} finally {
 				if (!disposed) loading = false;
+			}
+		}
+
+		async function refreshQuestions() {
+			try {
+				pendingQuestions = await listPendingQuestions(serverUrl, directory ?? projectDirectory, id);
+			} catch {
+				// The thread remains usable if this server version does not expose questions.
 			}
 		}
 
@@ -322,6 +356,7 @@
 							connectionState = 'connected';
 							everConnected = true;
 							void refreshMessages();
+							void refreshQuestions();
 						}
 						applyEvent(event);
 					}
@@ -345,6 +380,7 @@
 				// The history request below provides the user-facing error and can recover on reconnect.
 			}
 			await refreshMessages();
+			await refreshQuestions();
 			connect();
 
 		}
@@ -353,6 +389,7 @@
 			if (document.hidden) return;
 			connect();
 			void refreshMessages();
+			void refreshQuestions();
 		}
 
 		function goOffline() {
@@ -396,6 +433,9 @@
 		</div>
 		<div class="session-controls">
 			{#if detailsHref}<a class="details" href={detailsHref}>Details</a>{/if}
+			<button class="reasoning-toggle" type="button" onclick={() => showReasoning = !showReasoning} aria-pressed={showReasoning}>
+				Reasoning
+			</button>
 			<button class="archive-session" type="button" onclick={archiveSession} disabled={archiving || !sessionLoaded || !directory || !server}>
 				{archiving ? 'Archiving...' : 'Archive'}
 			</button>
@@ -415,6 +455,24 @@
 		<h1>{subAgent ? 'Sub-agent history' : 'Session history'}</h1>
 	</header>
 
+	{#if pendingQuestions.length > 0}
+		<section class="pending-questions" aria-label="Pending agent questions">
+			{#each pendingQuestions as pending (pending.id)}
+				{@const questionLink = questionsHref}
+				<svelte:element this={questionLink ? 'a' : 'div'} href={questionLink} class:linked={questionLink} class="question-card">
+					<div class="question-mark" aria-hidden="true"><span class="question-spinner"></span></div>
+					<div class="question-detail">
+						<div class="question-heading">
+							<strong>{pending.questions[0]?.header ?? 'Agent question'}</strong>
+							<span>Waiting</span>
+						</div>
+						<p>{pending.questions[0]?.question ?? 'The agent needs your input to continue.'}</p>
+					</div>
+				</svelte:element>
+			{/each}
+		</section>
+	{/if}
+
 	{#if loading}
 		<p class="status">Loading session history...</p>
 	{:else if error}
@@ -425,10 +483,18 @@
 		<section aria-label="Session messages">
 			{#each messages as message (message.info.id)}
 				{@const text = textParts(message.parts)}
+				{@const reasoning = reasoningParts(message.parts)}
 				{@const tools = toolParts(message.parts)}
 				{@const subAgents = subAgentParts(tools)}
 				{@const otherTools = otherToolParts(tools)}
 				<article class:user={message.info.role === 'user'}>
+					{#if showReasoning && reasoning.length > 0}
+						<section class="reasoning" aria-label="Reasoning">
+							{#each reasoning as part (part.id)}
+								<p>{part.text}</p>
+							{/each}
+						</section>
+					{/if}
 					{#each text as part (part.id)}
 						{#if message.info.role === 'assistant'}
 							<Markdown source={part.text} />
@@ -523,6 +589,8 @@
 	.archive-session { padding: 0 0.6rem; cursor: pointer; }
 	.session-controls { display: flex; gap: 0.4rem; }
 	.session-controls .details { display: grid; padding: 0 0.55rem; place-items: center; }
+	.reasoning-toggle { padding: 0 0.55rem; cursor: pointer; }
+	.reasoning-toggle[aria-pressed="true"] { border-color: var(--color-accent); color: var(--color-accent); }
 	.archive-session:disabled { cursor: not-allowed; opacity: 0.55; }
 	.session-bar a:focus-visible, .session-bar button:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 	.archive-error { margin: -0.5rem 0 1rem; padding: 0.65rem 0.75rem; border: 1px solid #603638; border-radius: 0.6rem; background: #2a1d1e; color: var(--color-error); font-size: 0.72rem; }
@@ -538,6 +606,9 @@
 	article.user { justify-self: end; max-width: 90%; padding: 0.9rem 1rem; border-radius: 1.25rem 1.25rem 0.25rem; background: #1677e8; color: #fff; }
 	.message-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
 	.message-text + .message-text { margin-top: 0.75rem; }
+	.reasoning { margin-bottom: 0.85rem; padding: 0.7rem 0.8rem; border: 1px solid #4b3d68; border-radius: 0.7rem; background: #201d29; color: #d4c6ec; font-size: 0.8rem; line-height: 1.5; }
+	.reasoning p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+	.reasoning p + p { margin-top: 0.65rem; }
 	.sub-agents { display: grid; gap: 0.5rem; margin-top: 0.85rem; }
 	.sub-agent { display: flex; align-items: center; gap: 0.75rem; min-width: 0; padding: 0.75rem 0.8rem; border: 1px solid #303839; border-radius: 0.8rem; background: linear-gradient(135deg, #1d2224, #181c1e); box-shadow: 0 1px 0 rgb(255 255 255 / 0.035) inset; }
 	.sub-agent.linked { color: inherit; text-decoration: none; }
@@ -557,6 +628,18 @@
 	.running .agent-status { color: var(--color-accent); }
 	.error-state .agent-status { color: #ff9c9f; }
 	.agent-detail p { margin: 0.2rem 0 0; color: #74817f; font-family: ui-monospace, monospace; font-size: 0.68rem; }
+	.pending-questions { display: grid; gap: 0.5rem; margin: 0 0 1.5rem; }
+	.question-card { display: flex; align-items: center; gap: 0.75rem; min-width: 0; padding: 0.75rem 0.8rem; border: 1px solid #4d5d55; border-radius: 0.8rem; background: linear-gradient(135deg, #202b28, #181e1e); box-shadow: 0 1px 0 rgb(255 255 255 / 0.035) inset; }
+	.question-card.linked { color: inherit; text-decoration: none; }
+	.question-card.linked::after { content: '›'; flex: 0 0 auto; color: var(--color-accent); font-size: 1.25rem; }
+	.question-card.linked:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
+	.question-mark { display: grid; flex: 0 0 auto; width: 1.9rem; height: 1.9rem; place-items: center; border: 1px solid #466057; border-radius: 0.6rem; background: #121817; color: var(--color-accent); }
+	.question-spinner { width: 0.85rem; height: 0.85rem; border: 2px solid #3d5c54; border-top-color: var(--color-accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+	.question-detail { min-width: 0; flex: 1; }
+	.question-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; }
+	.question-heading strong { min-width: 0; color: #edf2f1; font-size: 0.82rem; font-weight: 650; overflow-wrap: anywhere; }
+	.question-heading span { flex: 0 0 auto; color: var(--color-accent); font-size: 0.65rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
+	.question-detail p { display: -webkit-box; margin: 0.2rem 0 0; color: #9eaaa8; font-size: 0.72rem; line-height: 1.35; overflow: hidden; box-orient: vertical; line-clamp: 2; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 	.tools { display: grid; gap: 0.35rem; margin: 0.9rem 0 0; padding: 0; list-style: none; }
 	.tool { display: flex; align-items: center; gap: 0.5rem; min-width: 0; padding: 0.4rem 0.55rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background: #161a1c; font-family: ui-monospace, monospace; font-size: 0.72rem; }
 	.tool.running { border-color: #3e645a; background: #18201e; }
@@ -586,7 +669,7 @@
 	.thread-actions span[aria-disabled] { cursor: not-allowed; opacity: 0.45; }
 	.thread-actions a:focus-visible, .thread-actions button:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
 	@keyframes spin { to { transform: rotate(360deg); } }
-	@media (prefers-reduced-motion: reduce) { .spinner, .agent-spinner, .tool-spinner { animation: none; } }
+	@media (prefers-reduced-motion: reduce) { .spinner, .agent-spinner, .tool-spinner, .question-spinner { animation: none; } }
 
 	@media (min-width: 40rem) {
 		main { padding-right: 1.5rem; padding-left: 1.5rem; }
