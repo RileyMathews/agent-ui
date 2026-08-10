@@ -54,6 +54,12 @@ export const projectConfigs: ProjectConfig[] = [
 		directory: '/home/riley/code/configs'
 	},
 	{
+		id: 'vikunja-project-reset',
+		name: 'vikunja-project-reset',
+		repository: 'ssh://git@git.rileymathews.com/riley/vikunja-project-reset.git',
+		directory: '/home/riley/code/vikunja-project-reset'
+	},
+	{
 		id: 'nixos-config',
 		name: 'nixos-config',
 		repository: 'ssh://git@git.rileymathews.com/riley/nixos-config.git',
