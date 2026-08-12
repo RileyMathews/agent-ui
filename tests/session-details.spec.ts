@@ -10,7 +10,7 @@ test('opens detailed session telemetry from the thread bar', async ({ page }) =>
 		if (url.pathname === '/session/test') return route.fulfill({ json: { id: 'test', projectID: 'project', directory, title: 'Telemetry test', version: '1.2.3', time: { created: 1000, updated: 9000 }, summary: { additions: 42, deletions: 7, files: 3 } } });
 		if (url.pathname === '/session/test/message') return route.fulfill({ json: [
 			{ info: { id: 'user', sessionID: 'test', role: 'user', time: { created: 1000 }, agent: 'build', model: { providerID: 'zen', modelID: 'big-pickle' } }, parts: [{ id: 'text', sessionID: 'test', messageID: 'user', type: 'text', text: 'Test' }] },
-			{ info: { id: 'assistant', sessionID: 'test', role: 'assistant', time: { created: 2000, completed: 5000 }, parentID: 'user', modelID: 'big-pickle', providerID: 'zen', mode: 'build', path: { cwd: directory, root: directory }, cost: 0.0123, tokens: { input: 1000, output: 250, reasoning: 50, cache: { read: 500, write: 100 } }, finish: 'stop' }, parts: [{ id: 'tool', sessionID: 'test', messageID: 'assistant', type: 'tool', callID: 'call', tool: 'read', state: { status: 'completed', input: {}, output: '', title: 'Read', metadata: {}, time: { start: 2500, end: 3000 } } }] }
+			{ info: { id: 'assistant', sessionID: 'test', role: 'assistant', time: { created: 2000, completed: 5000 }, parentID: 'user', modelID: 'big-pickle', providerID: 'zen', mode: 'build', path: { cwd: directory, root: directory }, summary: true, cost: 0.0123, tokens: { input: 1000, output: 250, reasoning: 50, cache: { read: 500, write: 100 } }, finish: 'stop' }, parts: [{ id: 'tool', sessionID: 'test', messageID: 'assistant', type: 'tool', callID: 'call', tool: 'read', state: { status: 'completed', input: {}, output: '', title: 'Read', metadata: {}, time: { start: 2500, end: 3000 } } }] }
 		] });
 		if (url.pathname === '/session/test/diff') return route.fulfill({ json: [{ file: 'src/app.ts', additions: 42, deletions: 7, status: 'modified' }] });
 		if (url.pathname === '/session/test/todo') return route.fulfill({ json: [{ id: 'todo', content: 'Test', status: 'completed', priority: 'high' }] });
@@ -30,4 +30,5 @@ test('opens detailed session telemetry from the thread bar', async ({ page }) =>
 	await expect(page.getByRole('region', { name: 'Activity metrics' }).getByText('+42')).toBeVisible();
 	await expect(page.getByText('read', { exact: true })).toBeVisible();
 	await expect(page.locator('.model-list').getByText('zen / big-pickle')).toBeVisible();
+	await expect(page.locator('.facts dl div').filter({ hasText: 'Compactions' }).locator('dd')).toHaveText('1');
 });
