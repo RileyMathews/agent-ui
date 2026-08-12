@@ -3,24 +3,34 @@
 	import type { Server } from '$lib/config';
 	import { projects, servers, sessionHref } from '$lib/config';
 	import { getOpencodeV2 } from '$lib/opencode';
-	import { isWorking, loadProjectServer, type ProjectServerState } from '$lib/sessions';
+	import { isReady, isWorking, loadInParallel, loadProjectServer, type ProjectServerState, type ServerLoad } from '$lib/sessions';
 
 	type ProjectState = {
-		servers: ProjectServerState[];
+		servers: ServerLoad<ProjectServerState>[];
 	};
 
-	let projectsState = $state<Record<string, ProjectState>>({});
-	let loading = $state(true);
+	let projectsState = $state<Record<string, ProjectState>>(
+		Object.fromEntries(projects.map((project) => [project.id, { servers: servers.map(() => ({ status: 'pending' } as const)) }]))
+	);
 	let refreshing = $state(false);
+	let request = 0;
 	let selected = $state<Set<string>>(new Set());
 	let archiving = $state(false);
 	let archiveError = $state('');
+	const pendingCount = $derived(
+		projects.reduce(
+			(total, project) => total + (projectsState[project.id]?.servers ?? []).filter((load) => load.status === 'pending').length,
+			0
+		)
+	);
 	const currentSessions = $derived(
 		projects
 			.flatMap((project) => (projectsState[project.id]?.servers ?? [])
-				.flatMap((state) => state.sessions
-					.filter((session) => session.time.archived === undefined)
-					.map((session) => ({ project, state, session }))))
+				.flatMap((load) => isReady(load)
+					? load.value.sessions
+						.filter((session) => session.time.archived === undefined)
+						.map((session) => ({ project, state: load.value, session }))
+					: []))
 			.sort((left, right) => right.session.time.updated - left.session.time.updated)
 	);
 	const allCurrentSelected = $derived(
@@ -71,12 +81,19 @@
 		projectsState = Object.fromEntries(Object.entries(projectsState).map(([projectID, projectState]) => [
 			projectID,
 			{
-				servers: projectState.servers.map((state) => ({
-					...state,
-					sessions: state.sessions.map((session) => succeeded.has(`${projectID}:${state.server.id}:${session.id}`)
-						? { ...session, time: { ...session.time, archived } }
-						: session)
-				}))
+				servers: projectState.servers.map((load) =>
+					isReady(load)
+						? {
+								...load,
+								value: {
+									...load.value,
+									sessions: load.value.sessions.map((session) => succeeded.has(`${projectID}:${load.value.server.id}:${session.id}`)
+										? { ...session, time: { ...session.time, archived } }
+										: session)
+								}
+							}
+						: load
+				)
 			}
 		]));
 		selected = new Set([...selected].filter((key) => !succeeded.has(key)));
@@ -87,28 +104,39 @@
 
 	function activeCount(projectID: string) {
 		return (projectsState[projectID]?.servers ?? []).reduce(
-			(total, server) => total + server.sessions.filter((session) => session.time.archived === undefined && isWorking(server.statuses, session.id)).length,
+			(total, load) => total + (isReady(load)
+				? load.value.sessions.filter((session) => session.time.archived === undefined && isWorking(load.value.statuses, session.id)).length
+				: 0),
 			0
 		);
 	}
 
 	function sessionCount(projectID: string) {
 		return (projectsState[projectID]?.servers ?? []).reduce(
-			(total, server) => total + server.sessions.filter((session) => session.time.archived === undefined).length,
+			(total, load) => total + (isReady(load)
+				? load.value.sessions.filter((session) => session.time.archived === undefined).length
+				: 0),
 			0
 		);
 	}
 
 	async function refresh() {
-		if (refreshing) return;
+		const activeRequest = ++request;
 		refreshing = true;
-		const entries = await Promise.all(projects.map(async (project) => [
-			project.id,
-			{ servers: await Promise.all(servers.map((server) => loadProjectServer(project, server))) }
-		] as const));
-		projectsState = Object.fromEntries(entries);
-		loading = false;
-		refreshing = false;
+		projectsState = Object.fromEntries(projects.map((project) => [project.id, { servers: servers.map(() => ({ status: 'pending' } as const)) }]));
+		await Promise.allSettled(projects.map(async (project) => {
+			await loadInParallel(
+				servers.map((server) => ({ id: server.id, load: () => loadProjectServer(project, server) })),
+				(id, load) => {
+					if (activeRequest !== request) return;
+					projectsState = {
+						...projectsState,
+						[project.id]: { servers: projectsState[project.id].servers.map((current, index) => (servers[index].id === id ? load : current)) }
+					};
+				}
+			);
+		}));
+		if (activeRequest === request) refreshing = false;
 	}
 
 	onMount(() => {
@@ -136,20 +164,21 @@
 <main>
 		<header>
 			<div><p class="eyebrow">OpenCode fleet</p><h1>Dashboard</h1></div>
-			<button type="button" onclick={refresh} disabled={refreshing}>{refreshing && !loading ? 'Refreshing' : 'Refresh'}</button>
+			<button type="button" onclick={refresh} disabled={refreshing}>{refreshing ? 'Refreshing' : 'Refresh'}</button>
 	</header>
 
-		{#if loading}
-			<p class="status">Checking projects across {servers.length} servers...</p>
-		{:else}
-			<section class="current" aria-labelledby="current-heading">
-				<div class="section-heading">
-					<div><p class="eyebrow">Across the fleet</p><h2 id="current-heading">Current sessions</h2></div>
-					<span>{currentSessions.length}</span>
-				</div>
-				{#if currentSessions.length === 0}
-					<p class="status">No current sessions.</p>
+		<section class="current" aria-labelledby="current-heading">
+			<div class="section-heading">
+				<div><p class="eyebrow">Across the fleet</p><h2 id="current-heading">Current sessions</h2></div>
+				<span>{currentSessions.length}</span>
+			</div>
+			{#if currentSessions.length === 0}
+				{#if pendingCount > 0}
+					<p class="status" aria-live="polite">Checking projects across {servers.length} servers...</p>
 				{:else}
+					<p class="status">No current sessions.</p>
+				{/if}
+			{:else}
 					<div class="session-actions">
 						<label class="select-all">
 							<input
@@ -222,10 +251,12 @@
 							</div>
 							<span>{total} total</span>
 						</div>
-						<div class="server-list">
-							{#each projectsState[project.id]?.servers ?? [] as server (server.server.id)}
-								{@const currentSessions = server.sessions.filter((session) => session.time.archived === undefined)}
-								{@const running = currentSessions.filter((session) => isWorking(server.statuses, session.id)).length}
+<div class="server-list">
+						{#each projectsState[project.id]?.servers ?? [] as load, index (servers[index].id)}
+							{#if isReady(load)}
+								{@const server = load.value}
+								{@const current = server.sessions.filter((session) => session.time.archived === undefined)}
+								{@const running = current.filter((session) => isWorking(server.statuses, session.id)).length}
 								<div class:active={running > 0} class:unavailable={!server.available} class:error={!!server.error}>
 									<span class="dot"></span>
 									<span class="server-details">
@@ -240,16 +271,25 @@
 											<span class="git-unavailable">? status unavailable</span>
 										{/if}
 									</span>
-									<small>{server.error ? 'unreachable' : !server.available ? 'not checked out' : server.sessionError ? 'sessions unavailable' : running ? `${running} running` : `${currentSessions.length} sessions`}</small>
+									<small>{server.error ? 'unreachable' : !server.available ? 'not checked out' : server.sessionError ? 'sessions unavailable' : running ? `${running} running` : `${current.length} sessions`}</small>
 								</div>
-							{/each}
-						</div>
+							{:else}
+								<div class="loading" aria-busy="true">
+									<span class="dot"></span>
+									<span class="server-details">
+										<strong>{servers[index].name}</strong>
+										<span class="pulse">checking…</span>
+									</span>
+									<small>…</small>
+								</div>
+							{/if}
+						{/each}
+					</div>
 					</a>
 					<a class="new" href={`/new?project=${project.id}`}>New thread</a>
 				</li>
 			{/each}
 		</ul>
-	{/if}
 </main>
 
 <style>
@@ -307,6 +347,8 @@
 	.server-details b { margin-right: 0.25rem; font-size: 0.57rem; }
 	.server-details .git-unavailable { color: #9a7e4c; }
 	.server-list small { color: #778280; font-size: 0.67rem; }
+	.server-list > .loading .dot { background: #3a4644; }
+	.server-list > .loading .pulse { color: #7f8a88; animation: pulse 1.4s ease-in-out infinite; }
 	.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 	.dot { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: #65716f; }
 	.active .dot { background: #58aaf5; box-shadow: 0 0 0 0.2rem rgb(88 170 245 / 0.12); }
@@ -317,7 +359,8 @@
 	.spinner { flex: 0 0 auto; width: 0.9rem; height: 0.9rem; margin-top: 0.1rem; border: 2px solid #304c64; border-top-color: #72bdff; border-radius: 50%; animation: spin 0.8s linear infinite; }
 	a:focus-visible, button:focus-visible, input:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 	@keyframes spin { to { transform: rotate(360deg); } }
+	@keyframes pulse { 50% { opacity: 0.45; } }
 	@media (hover: hover) { .project:hover, .current-list li:hover { background: #1d2224; } .new:hover { color: var(--color-accent); } .host:hover { background: #1d2224; } }
-	@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+	@media (prefers-reduced-motion: reduce) { .spinner, .server-list > .loading .pulse { animation: none; } }
 	@media (min-width: 40rem) { main { padding-right: 1.5rem; padding-left: 1.5rem; } }
 </style>

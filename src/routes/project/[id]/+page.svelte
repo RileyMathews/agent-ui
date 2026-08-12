@@ -3,18 +3,28 @@
 	import { page } from '$app/state';
 	import { getProject, servers, sessionHref } from '$lib/config';
 	import { getOpencodeV2 } from '$lib/opencode';
-	import { isWorking, loadProjectServer, type ProjectServerState } from '$lib/sessions';
+	import { isReady, isWorking, loadInParallel, loadProjectServer, type ProjectServerState, type ServerLoad } from '$lib/sessions';
 
 	const project = getProject(page.params.id);
-	let serverStates = $state<ProjectServerState[]>([]);
-	let loading = $state(true);
+	let serverStates = $state<Record<string, ServerLoad<ProjectServerState>>>({});
 	let showArchived = $state(false);
 	let selected = $state<Set<string>>(new Set());
 	let archiving = $state(false);
 	let archiveError = $state('');
 	let request = 0;
+	const readyStates = $derived(
+		servers
+			.map((server) => {
+				const load = serverStates[server.id];
+				return isReady(load) ? load.value : undefined;
+			})
+			.filter((state): state is ProjectServerState => state !== undefined)
+	);
+	const pendingCount = $derived(
+		servers.filter((server) => (serverStates[server.id]?.status ?? 'pending') === 'pending').length
+	);
 	const sessions = $derived(
-		serverStates
+		readyStates
 			.flatMap((state) => state.sessions.map((session) => ({ session, state })))
 			.sort((left, right) => right.session.time.updated - left.session.time.updated)
 	);
@@ -28,7 +38,7 @@
 		visibleSessions.some((item) => selected.has(sessionKey(item)))
 	);
 	const serverProblems = $derived(
-		serverStates.filter((state) => state.error || !state.available || state.sessionError || state.gitError)
+		readyStates.filter((state) => state.error || !state.available || state.sessionError || state.gitError)
 	);
 
 	function formatDate(timestamp: number) {
@@ -84,12 +94,20 @@
 		));
 		const succeeded = new Set(items.filter((_, index) => results[index].status === 'fulfilled').map(sessionKey));
 
-		serverStates = serverStates.map((state) => ({
-			...state,
-			sessions: state.sessions.map((session) => succeeded.has(`${state.server.id}:${session.id}`)
-				? { ...session, time: { ...session.time, archived } }
-				: session)
-		}));
+		serverStates = Object.fromEntries(Object.entries(serverStates).map(([id, load]) => [
+			id,
+			isReady(load)
+				? {
+						...load,
+						value: {
+							...load.value,
+							sessions: load.value.sessions.map((session) => succeeded.has(`${load.value.server.id}:${session.id}`)
+								? { ...session, time: { ...session.time, archived } }
+								: session)
+						}
+					}
+				: load
+		]));
 		selected = new Set([...selected].filter((key) => !succeeded.has(key)));
 		const failed = results.length - succeeded.size;
 		if (failed > 0) archiveError = `${failed} ${failed === 1 ? 'session' : 'sessions'} could not be archived. Try again.`;
@@ -99,11 +117,13 @@
 	async function refresh() {
 		if (!project) return;
 		const activeRequest = ++request;
-		const next = await Promise.all(servers.map((server) => loadProjectServer(project, server)));
-		if (activeRequest === request) {
-			serverStates = next;
-			loading = false;
-		}
+		serverStates = Object.fromEntries(servers.map((server) => [server.id, { status: 'pending' }]));
+		await loadInParallel(
+			servers.map((server) => ({ id: server.id, load: () => loadProjectServer(project, server) })),
+			(id, load) => {
+				if (activeRequest === request) serverStates = { ...serverStates, [id]: load };
+			}
+		);
 	}
 
 	onMount(() => {
@@ -135,27 +155,37 @@
 		</header>
 		<div class="project-location"><span>{project.repository}</span><code>{project.directory}</code></div>
 
-		{#if loading}
-			<p class="status">Loading sessions from {servers.length} servers...</p>
-		{:else}
-			<section class="checkout-list" aria-label="Git checkout status">
-				{#each serverStates as state (state.server.id)}
-					<div class="checkout" class:dirty={state.git?.dirty} class:unavailable={!state.available || !!state.gitError}>
-						<strong>{state.server.name}</strong>
-						{#if state.git}
-							<code title={state.git.branch ?? 'Detached HEAD'}>{state.git.branch ?? 'detached'}</code>
-							<span><b aria-hidden="true">{state.git.dirty ? '●' : '✓'}</b> {state.git.dirty ? `${state.git.changedFiles} changed` : 'clean'}</span>
+		<section class="checkout-list" aria-label="Git checkout status">
+			{#each servers as server (server.id)}
+				{@const state = serverStates[server.id] ?? { status: 'pending' }}
+				{#if isReady(state)}
+					{@const value = state.value}
+					<div class="checkout" class:dirty={value.git?.dirty} class:unavailable={!value.available || !!value.gitError}>
+						<strong>{value.server.name}</strong>
+						{#if value.git}
+							<code title={value.git.branch ?? 'Detached HEAD'}>{value.git.branch ?? 'detached'}</code>
+							<span><b aria-hidden="true">{value.git.dirty ? '●' : '✓'}</b> {value.git.dirty ? `${value.git.changedFiles} changed` : 'clean'}</span>
 						{:else}
-							<span>{state.error ? 'unreachable' : !state.available ? 'not checked out' : 'status unavailable'}</span>
+							<span>{value.error ? 'unreachable' : !value.available ? 'not checked out' : 'status unavailable'}</span>
 						{/if}
 					</div>
-				{/each}
-			</section>
+				{:else}
+					<div class="checkout loading" aria-busy="true">
+						<strong>{server.name}</strong>
+						<span class="pulse">checking…</span>
+					</div>
+				{/if}
+			{/each}
+		</section>
 
-			{#if sessions.length === 0}
-				<p class="status">No sessions for this project.</p>
+		{#if sessions.length === 0}
+			{#if pendingCount > 0}
+				<p class="status" aria-live="polite">Loading sessions from {pendingCount} server{pendingCount === 1 ? '' : 's'}...</p>
 			{:else}
-				<div class="session-actions">
+				<p class="status">No sessions for this project.</p>
+			{/if}
+		{:else}
+			<div class="session-actions">
 					<label class="select-all">
 						<input
 							type="checkbox"
@@ -211,7 +241,6 @@
 					{/each}
 				</section>
 			{/if}
-		{/if}
 	{/if}
 </main>
 
@@ -234,6 +263,8 @@
 	.checkout span b { margin-right: 0.15rem; font-size: 0.57rem; }
 	.checkout.dirty span { color: #e4ad67; }
 	.checkout.unavailable span { color: #b18d55; }
+	.checkout.loading { grid-template-columns: minmax(0, 1fr) auto; }
+	.checkout.loading span { color: #7f8a88; animation: pulse 1.4s ease-in-out infinite; }
 	.status, .server-note { margin: 0; padding: 1rem 1.1rem; border: 1px solid var(--color-border); border-radius: 0.75rem; background: var(--color-panel); color: var(--color-muted); }
 	.status.error { border-color: #603638; color: var(--color-error); }
 	.session-actions { display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; margin-bottom: 0.65rem; }
@@ -259,7 +290,8 @@
 	.spinner { flex: 0 0 auto; width: 0.9rem; height: 0.9rem; margin-top: 0.1rem; border: 2px solid #304c64; border-top-color: #72bdff; border-radius: 50%; animation: spin 0.8s linear infinite; }
 	a:focus-visible, button:focus-visible, input:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 	@keyframes spin { to { transform: rotate(360deg); } }
+	@keyframes pulse { 50% { opacity: 0.45; } }
 	@media (hover: hover) { li:hover { border-color: #4a5956; background: #1d2224; } li.archived:hover { border-left-color: #697170; } }
-	@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+	@media (prefers-reduced-motion: reduce) { .spinner, .checkout.loading span { animation: none; } }
 	@media (min-width: 40rem) { main { padding-right: 1.5rem; padding-left: 1.5rem; } }
 </style>

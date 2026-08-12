@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const directory = '/home/riley/code/configs/agent-ui';
+const directory = '/home/riley/code/agent-ui';
 const activeSession = {
 	id: 'active-session',
 	projectID: 'configs',
@@ -23,11 +23,11 @@ test('selects, archives, and reveals archived sessions', async ({ page }) => {
 	await page.route('https://*/**', async (route) => {
 		const url = new URL(route.request().url());
 		if (!url.hostname.endsWith('opencode.rileymathews.com')) return route.continue();
-		if (url.hostname === 'opencode.rileymathews.com') {
+		if (url.hostname === 'opencode.rileymathews.com' || url.hostname === 'ds9opencode.rileymathews.com') {
 			if (url.pathname === '/project/current') return route.fulfill({ json: { id: 'other', vcs: 'none', worktree: '/tmp' } });
 			return route.abort();
 		}
-		if (url.pathname === '/project/current') return route.fulfill({ json: { id: 'configs', vcs: 'git', worktree: '/home/riley/code/configs' } });
+		if (url.pathname === '/project/current') return route.fulfill({ json: { id: 'configs', vcs: 'git', worktree: '/home/riley/code/agent-ui' } });
 		if (url.pathname === '/file') return route.fulfill({ json: [] });
 		if (url.pathname === '/api/session') return route.fulfill({ json: { data: [activeSession, archivedSession], cursor: {} } });
 		if (url.pathname === '/session/status') return route.fulfill({ json: {} });
