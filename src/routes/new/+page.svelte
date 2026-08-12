@@ -11,7 +11,6 @@
 	const pendingCount = $derived(
 		servers.filter((server) => (serverStates[server.id]?.status ?? 'pending') === 'pending').length
 	);
-	const checkedCount = $derived(servers.length - pendingCount);
 
 	async function checkServers() {
 		const selected = getProject(projectID);
@@ -49,8 +48,6 @@
 	{:else}
 		{#if pendingCount > 0}
 			<p class="status" aria-live="polite">Checking {pendingCount} server{pendingCount === 1 ? '' : 's'} on {project.name}...</p>
-		{:else if checkedCount === servers.length}
-			<p class="status" aria-live="polite">Checked {servers.length} server{servers.length === 1 ? '' : 's'}.</p>
 		{/if}
 		<ul>
 			{#each servers as server (server.id)}
