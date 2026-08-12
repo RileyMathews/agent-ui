@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import type { Server } from '$lib/config';
 	import { projects, servers, sessionHref } from '$lib/config';
 	import { getOpencodeV2 } from '$lib/opencode';
 	import { isWorking, loadProjectServer, type ProjectServerState } from '$lib/sessions';
@@ -124,6 +125,10 @@
 			document.removeEventListener('visibilitychange', resume);
 		};
 	});
+
+	function terminalHref(server: Server) {
+		return `/terminal?${new URLSearchParams({ server: server.id, directory: server.home, returnTo: '/' })}`;
+	}
 </script>
 
 <svelte:head><title>Dashboard</title><meta name="theme-color" content="#111315" /></svelte:head>
@@ -180,6 +185,26 @@
 						{/each}
 					</ul>
 				{/if}
+			</section>
+
+			<section class="hosts" aria-labelledby="hosts-heading">
+				<div class="section-heading">
+					<div><p class="eyebrow">Home directories</p><h2 id="hosts-heading">Hosts</h2></div>
+					<span>{servers.length}</span>
+				</div>
+				<ul class="host-list">
+					{#each servers as server (server.id)}
+						<li>
+							<a class="host" href={terminalHref(server)}>
+								<div class="host-details">
+									<strong>{server.name}</strong>
+									<span>{server.home}</span>
+								</div>
+								<b>Terminal &gt;_</b>
+							</a>
+						</li>
+					{/each}
+				</ul>
 			</section>
 
 			<div class="section-heading projects-heading"><div><p class="eyebrow">Configured worktrees</p><h2>Projects</h2></div></div>
@@ -240,6 +265,14 @@
 	.section-heading h2 { margin: 0; font-size: 1.35rem; letter-spacing: -0.035em; }
 	.section-heading > span { padding: 0.25rem 0.5rem; border-radius: 99px; background: #23292a; color: #8f9a98; font-size: 0.68rem; }
 	.projects-heading { margin-bottom: 0.8rem; }
+	.hosts { margin-bottom: 2.25rem; }
+	.host-list { display: grid; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
+	.host-list li { overflow: hidden; border: 1px solid #303738; border-radius: 0.9rem; background: var(--color-surface); }
+	.host { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.15rem; }
+	.host-details { display: grid; min-width: 0; gap: 0.2rem; }
+	.host-details strong { color: #cbd3d2; font-family: ui-monospace, monospace; font-size: 0.82rem; }
+	.host-details span { color: #71807d; font-family: ui-monospace, monospace; font-size: 0.7rem; }
+	.host b { flex: 0 0 auto; color: var(--color-accent); font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
 	.session-actions { display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; margin-bottom: 0.65rem; }
 	.select-all { display: flex; align-items: center; gap: 0.45rem; color: var(--color-muted); font-size: 0.72rem; font-weight: 700; }
 	input[type='checkbox'] { width: 1.05rem; height: 1.05rem; margin: 0; accent-color: var(--color-accent); }
@@ -284,7 +317,7 @@
 	.spinner { flex: 0 0 auto; width: 0.9rem; height: 0.9rem; margin-top: 0.1rem; border: 2px solid #304c64; border-top-color: #72bdff; border-radius: 50%; animation: spin 0.8s linear infinite; }
 	a:focus-visible, button:focus-visible, input:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 	@keyframes spin { to { transform: rotate(360deg); } }
-	@media (hover: hover) { .project:hover, .current-list li:hover { background: #1d2224; } .new:hover { color: var(--color-accent); } }
+	@media (hover: hover) { .project:hover, .current-list li:hover { background: #1d2224; } .new:hover { color: var(--color-accent); } .host:hover { background: #1d2224; } }
 	@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
 	@media (min-width: 40rem) { main { padding-right: 1.5rem; padding-left: 1.5rem; } }
 </style>

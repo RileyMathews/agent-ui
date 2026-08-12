@@ -2,6 +2,7 @@ export type Server = {
 	id: string;
 	name: string;
 	url: string;
+	home: string;
 };
 
 export type SubprojectConfig = {
@@ -32,17 +33,20 @@ export const servers: Server[] = [
 	{
 		id: 'scottyopencode.rileymathews.com',
 		name: 'scottyopencode',
-		url: 'https://scottyopencode.rileymathews.com'
+		url: 'https://scottyopencode.rileymathews.com',
+		home: '/home/riley'
 	},
 	{
 		id: 'ds9opencode.rileymathews.com',
 		name: 'ds9opencode',
-		url: 'https://ds9opencode.rileymathews.com'
+		url: 'https://ds9opencode.rileymathews.com',
+		home: '/home/riley'
 	},
 	{
 		id: 'opencode.rileymathews.com',
 		name: 'opencode',
-		url: 'https://opencode.rileymathews.com'
+		url: 'https://opencode.rileymathews.com',
+		home: '/home/riley'
 	}
 ];
 
