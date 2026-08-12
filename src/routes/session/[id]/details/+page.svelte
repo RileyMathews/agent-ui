@@ -61,6 +61,7 @@
 	const toolSummary = $derived(summarizeTools(toolParts));
 	const modelSummary = $derived(summarizeModels(assistantMessages));
 	const failedTools = $derived(toolParts.filter((part) => part.state.status === 'error').length);
+	const compactionCount = $derived(assistantMessages.filter((message) => message.summary).length);
 	const completedResponses = $derived(assistantMessages.filter((message) => message.time.completed));
 	const responseDuration = $derived(completedResponses.reduce((sum, message) => sum + (message.time.completed! - message.time.created), 0));
 	const partCounts = $derived(messages.flatMap((message) => message.parts).reduce<Record<string, number>>((counts, part) => {
@@ -267,6 +268,7 @@
 			<article><span>Messages</span><strong>{messages.length}</strong><small>{userMessages.length} user · {assistantMessages.length} assistant</small></article>
 			<article><span>Model time</span><strong>{formatDuration(responseDuration)}</strong><small>{completedResponses.length ? `${formatDuration(responseDuration / completedResponses.length)} average` : 'No completed responses'}</small></article>
 			<article><span>Tool calls</span><strong>{toolParts.length}</strong><small>{failedTools} failed · {toolSummary.length} tools</small></article>
+			<article><span>Compactions</span><strong>{compactionCount}</strong><small>{session.time.compacting ? 'Currently compacting' : 'Completed summaries'}</small></article>
 			<article><span>Workspace</span><strong>{fileCount}</strong><small><b>+{additions}</b> / <em>−{deletions}</em> lines</small></article>
 			<article><span>Sub-sessions</span><strong>{children.length}</strong><small>{linkedChildren} linked</small></article>
 			<article><span>Todos</span><strong>{todos.length}</strong><small>{todos.filter((todo) => todo.status === 'completed').length} complete</small></article>
@@ -315,7 +317,6 @@
 				<div><dt>Latest model</dt><dd>{latestAssistant ? `${latestAssistant.providerID} / ${latestAssistant.modelID}` : session.model ? `${session.model.providerID} / ${session.model.id}` : 'Not available'}</dd></div>
 				<div><dt>Latest agent</dt><dd>{session.agent ?? userMessages.at(-1)?.agent ?? 'Not available'}</dd></div>
 				<div><dt>Finish reason</dt><dd>{latestAssistant?.finish ?? 'Not available'}</dd></div>
-				<div><dt>Compactions</dt><dd>{assistantMessages.filter((message) => message.summary).length}{session.time.compacting ? ' · currently compacting' : ''}</dd></div>
 				<div><dt>Parts recorded</dt><dd>{Object.entries(partCounts).map(([type, count]) => `${type}: ${count}`).join(' · ') || 'None'}</dd></div>
 				<div><dt>Share</dt><dd>{session.share?.url ?? 'Private'}</dd></div>
 				{#if session.parentID}<div><dt>Parent session</dt><dd>{session.parentID}</dd></div>{/if}

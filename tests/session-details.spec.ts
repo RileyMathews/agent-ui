@@ -30,5 +30,5 @@ test('opens detailed session telemetry from the thread bar', async ({ page }) =>
 	await expect(page.getByRole('region', { name: 'Activity metrics' }).getByText('+42')).toBeVisible();
 	await expect(page.getByText('read', { exact: true })).toBeVisible();
 	await expect(page.locator('.model-list').getByText('zen / big-pickle')).toBeVisible();
-	await expect(page.locator('.facts dl div').filter({ hasText: 'Compactions' }).locator('dd')).toHaveText('1');
+	await expect(page.getByRole('region', { name: 'Activity metrics' }).locator('article').filter({ hasText: 'Compactions' })).toContainText('1');
 });
