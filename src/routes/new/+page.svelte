@@ -8,9 +8,6 @@
 	let serverStates = $state<Record<string, ServerLoad<ProjectAvailability>>>({});
 	let request = 0;
 	const project = $derived(getProject(projectID));
-	const pendingCount = $derived(
-		servers.filter((server) => (serverStates[server.id]?.status ?? 'pending') === 'pending').length
-	);
 
 	async function checkServers() {
 		const selected = getProject(projectID);
@@ -46,9 +43,6 @@
 	{#if !project}
 		<p class="status">Choose a project to check its servers.</p>
 	{:else}
-		{#if pendingCount > 0}
-			<p class="status" aria-live="polite">Checking {pendingCount} server{pendingCount === 1 ? '' : 's'} on {project.name}...</p>
-		{/if}
 		<ul>
 			{#each servers as server (server.id)}
 				{@const state = serverStates[server.id] ?? { status: 'pending' }}
