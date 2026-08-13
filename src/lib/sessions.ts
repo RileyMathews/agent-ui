@@ -120,6 +120,30 @@ export async function loadProjectServer(project: Project, server: Server): Promi
 	};
 }
 
+export type ServerLoad<T> =
+	| { status: 'pending' }
+	| { status: 'ready'; value: T }
+	| { status: 'error'; error: string };
+
+export function isReady<T>(load: ServerLoad<T> | undefined): load is { status: 'ready'; value: T } {
+	return load?.status === 'ready';
+}
+
+export async function loadInParallel<T>(
+	entries: { id: string; load: () => Promise<T> }[],
+	report: (id: string, load: ServerLoad<T>) => void
+) {
+	await Promise.allSettled(
+		entries.map(async ({ id, load }) => {
+			try {
+				report(id, { status: 'ready', value: await load() });
+			} catch (cause) {
+				report(id, { status: 'error', error: cause instanceof Error ? cause.message : 'Unable to load.' });
+			}
+		})
+	);
+}
+
 export function isWorking(statuses: SessionStatusResponse, sessionID: string) {
 	return statuses[sessionID]?.type === 'busy' || statuses[sessionID]?.type === 'retry';
 }

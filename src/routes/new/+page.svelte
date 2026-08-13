@@ -2,25 +2,24 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { getProject, projects, servers } from '$lib/config';
-	import { checkProject, type ProjectAvailability } from '$lib/sessions';
+	import { checkProject, loadInParallel, type ProjectAvailability, type ServerLoad } from '$lib/sessions';
 
 	let projectID = $state(page.url.searchParams.get('project') ?? '');
-	let serverStates = $state<ProjectAvailability[]>([]);
-	let loading = $state(false);
+	let serverStates = $state<Record<string, ServerLoad<ProjectAvailability>>>({});
 	let request = 0;
 	const project = $derived(getProject(projectID));
 
 	async function checkServers() {
 		const selected = getProject(projectID);
-		serverStates = [];
 		if (!selected) return;
 		const activeRequest = ++request;
-		loading = true;
-		const next = await Promise.all(servers.map((server) => checkProject(selected, server)));
-		if (activeRequest === request) {
-			serverStates = next;
-			loading = false;
-		}
+		serverStates = Object.fromEntries(servers.map((server) => [server.id, { status: 'pending' }]));
+		await loadInParallel(
+			servers.map((server) => ({ id: server.id, load: () => checkProject(selected, server) })),
+			(id, load) => {
+				if (activeRequest === request) serverStates = { ...serverStates, [id]: load };
+			}
+		);
 	}
 
 	function selectProject(event: Event) {
@@ -43,16 +42,19 @@
 
 	{#if !project}
 		<p class="status">Choose a project to check its servers.</p>
-	{:else if loading}
-		<p class="status">Checking {project.name} across servers...</p>
 	{:else}
 		<ul>
-			{#each serverStates as state (state.server.id)}
-				<li class:ready={state.available} class:error={!!state.error}>
-					{#if state.available}
-						<a href={`/new/chat?${new URLSearchParams({ project: project.id, server: state.server.id })}`}><strong>{state.server.name}</strong><span>{project.directory}</span><b>Continue →</b></a>
+			{#each servers as server (server.id)}
+				{@const state = serverStates[server.id] ?? { status: 'pending' }}
+				{@const ready = state.status === 'ready' && state.value.available}
+				{@const hasError = state.status === 'ready' && !!state.value.error}
+				<li class:ready class:error={hasError} class:loading={state.status !== 'ready'}>
+					{#if ready}
+						<a href={`/new/chat?${new URLSearchParams({ project: project.id, server: state.value.server.id })}`}><strong>{state.value.server.name}</strong><span>{project.directory}</span><b>Continue →</b></a>
+					{:else if state.status === 'ready'}
+						<div><strong>{state.value.server.name}</strong><span>{hasError ? 'Server is unreachable.' : `No git checkout found at ${project.directory}.`}</span><b>{hasError ? 'Unavailable' : 'Checkout required'}</b></div>
 					{:else}
-						<div><strong>{state.server.name}</strong><span>{state.error ? 'Server is unreachable.' : `No git checkout found at ${project.directory}.`}</span><b>{state.error ? 'Unavailable' : 'Checkout required'}</b></div>
+						<div class="pending"><strong>{server.name}</strong><span class="pulse">Checking availability…</span></div>
 					{/if}
 				</li>
 			{/each}
@@ -81,7 +83,11 @@
 	li b { margin-top: 0.4rem; color: #ae935f; font-size: 0.7rem; text-transform: uppercase; }
 	li.ready b { color: var(--color-accent); }
 	li.error b { color: #ff9c9f; }
+	li.loading { border-color: #2b3435; }
+	li.loading .pending span:last-child { margin-top: 0.25rem; color: #7f8a88; font-size: 0.7rem; animation: pulse 1.4s ease-in-out infinite; }
 	a:focus-visible, select:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 	@media (hover: hover) { li.ready:hover { background: #1d2422; } }
+	@media (prefers-reduced-motion: reduce) { li.loading .pending span:last-child { animation: none; opacity: 0.6; } }
+	@keyframes pulse { 50% { opacity: 0.45; } }
 	@media (min-width: 40rem) { main { padding-right: 1.5rem; padding-left: 1.5rem; } }
 </style>

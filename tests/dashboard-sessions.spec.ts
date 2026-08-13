@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const directory = '/home/riley/code/configs/agent-ui';
+const directory = '/home/riley/code/configs';
 const activeSession = {
 	id: 'dashboard-active',
 	projectID: 'configs',
@@ -23,7 +23,7 @@ test('shows and archives current sessions across the dashboard', async ({ page }
 	await page.route('https://*/**', async (route) => {
 		const url = new URL(route.request().url());
 		if (!url.hostname.endsWith('opencode.rileymathews.com')) return route.continue();
-		if (url.hostname === 'opencode.rileymathews.com') {
+		if (url.hostname === 'opencode.rileymathews.com' || url.hostname === 'ds9opencode.rileymathews.com') {
 			if (url.pathname === '/project/current') return route.fulfill({ json: { id: 'other', vcs: 'none', worktree: '/tmp' } });
 			return route.abort();
 		}
@@ -52,7 +52,7 @@ test('shows and archives current sessions across the dashboard', async ({ page }
 	const current = page.getByRole('region', { name: 'Current sessions' });
 	await expect(current.getByRole('link', { name: /Dashboard session/ })).toBeVisible();
 	await expect(current.getByRole('link', { name: /Old dashboard session/ })).toBeHidden();
-	await expect(current.getByText('agent-ui / scottyopencode')).toBeVisible();
+	await expect(current.getByText('configs / scottyopencode')).toBeVisible();
 	await current.getByLabel('Select all').check();
 	await current.getByRole('button', { name: 'Archive (1)' }).click();
 
