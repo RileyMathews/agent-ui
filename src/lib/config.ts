@@ -70,6 +70,12 @@ export const projectConfigs: ProjectConfig[] = [
 		directory: '/home/riley/code/nixos-config'
 	},
 	{
+		id: 'thegenerosityco-nixos-config',
+		name: 'thegenerosityco-nixos-config',
+		repository: 'ssh://git@git.rileymathews.com/riley/thegenerosityco-nixos-config.git',
+		directory: '/home/riley/code/thegenerosityco-nixos-config'
+	},
+	{
 		id: 'dotfiles',
 		name: 'dotfiles',
 		repository: 'ssh://git@git.rileymathews.com/riley/dotfiles.git',
