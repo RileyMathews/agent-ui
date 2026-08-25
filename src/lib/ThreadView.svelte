@@ -453,6 +453,15 @@
 				{archiving ? 'Archiving...' : 'Archive'}
 			</button>
 		</div>
+		{#if currentTurn}
+			<section class="current-turn" aria-label="Current turn settings" aria-live="polite">
+				<span class="turn-spinner" aria-hidden="true"></span>
+				<div>
+					<strong>Current turn</strong>
+					<p>{currentTurn.providerID}/{currentTurn.modelID} · {currentTurn.agent ?? 'default agent'} · {currentTurn.variant ?? 'default reasoning'}</p>
+				</div>
+			</section>
+		{/if}
 	</nav>
 	{#if archiveError}<p class="archive-error" role="alert">{archiveError}</p>{/if}
 
@@ -467,16 +476,6 @@
 		<p class="eyebrow">{project?.name ?? 'OpenCode'} · {server?.name ?? 'Unknown server'}</p>
 		<h1>{subAgent ? 'Sub-agent history' : 'Session history'}</h1>
 	</header>
-
-	{#if currentTurn}
-		<section class="current-turn" aria-label="Current turn settings" aria-live="polite">
-			<span class="turn-spinner" aria-hidden="true"></span>
-			<div>
-				<strong>Current turn</strong>
-				<p>{currentTurn.providerID}/{currentTurn.modelID} · {currentTurn.agent ?? 'default agent'} · {currentTurn.variant ?? 'default reasoning'}</p>
-			</div>
-		</section>
-	{/if}
 
 	{#if pendingQuestions.length > 0}
 		<section class="pending-questions" aria-label="Pending agent questions">
@@ -622,9 +621,10 @@
 	header { margin-bottom: 1.75rem; }
 	.eyebrow { margin: 0 0 0.4rem; color: var(--color-accent); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
 	h1 { margin: 0; font-size: clamp(2rem, 8vw, 2.75rem); letter-spacing: -0.055em; line-height: 0.95; }
-	.current-turn { display: flex; align-items: center; gap: 0.7rem; margin: -0.7rem 0 1.5rem; padding: 0.65rem 0.75rem; border: 1px solid #3e645a; border-radius: 0.75rem; background: linear-gradient(135deg, #1d2927, #181e1e); }
+	.current-turn { display: flex; grid-column: 1 / -1; align-items: center; gap: 0.6rem; min-width: 0; margin: 0; padding: 0.45rem 0.55rem; border: 1px solid #3e645a; border-radius: 0.6rem; background: linear-gradient(135deg, #1d2927, #181e1e); }
 	.current-turn strong { display: block; color: var(--color-accent); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
-	.current-turn p { margin: 0.18rem 0 0; color: #cbd5d2; font-family: ui-monospace, monospace; font-size: 0.7rem; line-height: 1.35; overflow-wrap: anywhere; }
+	.current-turn div { min-width: 0; }
+	.current-turn p { margin: 0.1rem 0 0; color: #cbd5d2; font-family: ui-monospace, monospace; font-size: 0.7rem; line-height: 1.35; overflow-wrap: anywhere; }
 	.turn-spinner { width: 0.8rem; height: 0.8rem; flex: 0 0 auto; border: 2px solid #3d5c54; border-top-color: var(--color-accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
 	.status { margin: 0; padding: 1rem 1.1rem; border: 1px solid var(--color-border); border-radius: 0.75rem; background: var(--color-panel); color: var(--color-muted); }
 	.error { border-color: #603638; color: var(--color-error); }
