@@ -12,6 +12,12 @@
 
 	type HistoryMessage = SessionMessagesResponse[number];
 	type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'offline';
+	type TurnSettings = {
+		modelID: string;
+		providerID: string;
+		agent?: string;
+		variant?: string;
+	};
 
 	const parentSessionID = page.params.id;
 	const sessionID = $derived(subAgent ? page.params.subAgentID : parentSessionID);
@@ -30,6 +36,13 @@
 	let pendingQuestions = $state<PendingQuestion[]>([]);
 	let main: HTMLElement;
 	let following = $state(true);
+	const currentTurn = $derived.by(() => {
+		for (const message of [...messages].reverse()) {
+			if (message.info.role !== 'assistant' || message.info.time.completed || message.info.error) continue;
+			return message.info as typeof message.info & TurnSettings;
+		}
+		return undefined;
+	});
 	const query = server && project ? new URLSearchParams({ server: server.id, project: project.id }) : undefined;
 	const parentThreadHref = query ? `/session/${encodeURIComponent(parentSessionID ?? '')}?${query}` : '/';
 	const threadHref = $derived(query ? `/session/${encodeURIComponent(sessionID ?? '')}?${query}` : '/');
@@ -455,6 +468,16 @@
 		<h1>{subAgent ? 'Sub-agent history' : 'Session history'}</h1>
 	</header>
 
+	{#if currentTurn}
+		<section class="current-turn" aria-label="Current turn settings" aria-live="polite">
+			<span class="turn-spinner" aria-hidden="true"></span>
+			<div>
+				<strong>Current turn</strong>
+				<p>{currentTurn.providerID}/{currentTurn.modelID} · {currentTurn.agent ?? 'default agent'} · {currentTurn.variant ?? 'default reasoning'}</p>
+			</div>
+		</section>
+	{/if}
+
 	{#if pendingQuestions.length > 0}
 		<section class="pending-questions" aria-label="Pending agent questions">
 			{#each pendingQuestions as pending (pending.id)}
@@ -599,6 +622,10 @@
 	header { margin-bottom: 1.75rem; }
 	.eyebrow { margin: 0 0 0.4rem; color: var(--color-accent); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
 	h1 { margin: 0; font-size: clamp(2rem, 8vw, 2.75rem); letter-spacing: -0.055em; line-height: 0.95; }
+	.current-turn { display: flex; align-items: center; gap: 0.7rem; margin: -0.7rem 0 1.5rem; padding: 0.65rem 0.75rem; border: 1px solid #3e645a; border-radius: 0.75rem; background: linear-gradient(135deg, #1d2927, #181e1e); }
+	.current-turn strong { display: block; color: var(--color-accent); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+	.current-turn p { margin: 0.18rem 0 0; color: #cbd5d2; font-family: ui-monospace, monospace; font-size: 0.7rem; line-height: 1.35; overflow-wrap: anywhere; }
+	.turn-spinner { width: 0.8rem; height: 0.8rem; flex: 0 0 auto; border: 2px solid #3d5c54; border-top-color: var(--color-accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
 	.status { margin: 0; padding: 1rem 1.1rem; border: 1px solid var(--color-border); border-radius: 0.75rem; background: var(--color-panel); color: var(--color-muted); }
 	.error { border-color: #603638; color: var(--color-error); }
 	section { display: grid; gap: 1.5rem; }
@@ -669,7 +696,7 @@
 	.thread-actions span[aria-disabled] { cursor: not-allowed; opacity: 0.45; }
 	.thread-actions a:focus-visible, .thread-actions button:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
 	@keyframes spin { to { transform: rotate(360deg); } }
-	@media (prefers-reduced-motion: reduce) { .spinner, .agent-spinner, .tool-spinner, .question-spinner { animation: none; } }
+	@media (prefers-reduced-motion: reduce) { .spinner, .turn-spinner, .agent-spinner, .tool-spinner, .question-spinner { animation: none; } }
 
 	@media (min-width: 40rem) {
 		main { padding-right: 1.5rem; padding-left: 1.5rem; }
