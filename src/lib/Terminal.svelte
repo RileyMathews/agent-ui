@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { FitAddon, Ghostty, Terminal as GhosttyTerminal } from 'ghostty-web';
-	import { getOpencodeV2 } from '$lib/opencode';
+	import { getOpencode } from '$lib/opencode';
 
 	type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'offline' | 'exited' | 'error';
 	type Disposable = { dispose(): void };
@@ -38,7 +38,7 @@
 
 	onMount(() => {
 		if (!serverUrl) return;
-		const opencodeV2 = getOpencodeV2(serverUrl);
+		const opencode = getOpencode(serverUrl);
 		let terminal: GhosttyTerminal | undefined;
 		let fit: FitAddon | undefined;
 		let socket: WebSocket | undefined;
@@ -97,7 +97,7 @@
 			if (lastSize?.cols === cols && lastSize.rows === rows) return;
 			const send = () => {
 				lastSize = { cols, rows };
-				void opencodeV2.v2.pty.update({
+				void opencode.pty.update({
 					ptyID,
 					location: { directory },
 					size: { cols, rows }
@@ -122,9 +122,7 @@
 
 		async function terminalExists() {
 			try {
-				const response = await opencodeV2.v2.pty.get({ ptyID, location: { directory } }) as unknown as {
-					data: { status: 'running' | 'exited'; exitCode?: number };
-				};
+				const response = await opencode.pty.get({ ptyID, location: { directory } });
 				if (response.data.status === 'exited') {
 					setState('exited', response.data.exitCode === undefined ? 'Shell exited' : `Shell exited (${response.data.exitCode})`);
 					return false;
@@ -156,10 +154,7 @@
 		}
 
 		async function ticket() {
-			const response = await opencodeV2.v2.pty.connectToken(
-				{ ptyID, location: { directory } },
-				{ headers: { 'x-opencode-ticket': '1' } }
-			) as unknown as { data: { ticket: string } };
+			const response = await opencode.pty.connect.token({ ptyID, location: { directory }, 'x-opencode-ticket': '1' });
 			return response.data.ticket;
 		}
 

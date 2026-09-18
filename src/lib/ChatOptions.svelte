@@ -1,16 +1,16 @@
 <script lang="ts">
-	import type { Agent, Provider } from '@opencode-ai/sdk/v2/client';
+	import type { AgentInfo, ModelInfo } from '@opencode/client';
 
 	let {
-		providers,
+		models,
 		agents,
 		modelValue = $bindable(),
 		agent = $bindable(),
 		variant = $bindable(),
 		disabled = false
 	}: {
-		providers: Provider[];
-		agents: Agent[];
+		models: ModelInfo[];
+		agents: AgentInfo[];
 		modelValue: string;
 		agent: string;
 		variant: string;
@@ -20,9 +20,9 @@
 	const selectedModel = $derived.by(() => {
 		if (!modelValue) return undefined;
 		const selected = JSON.parse(modelValue) as { providerID: string; modelID: string };
-		return providers.find((provider) => provider.id === selected.providerID)?.models[selected.modelID];
+		return models.find((model) => model.providerID === selected.providerID && model.modelID === selected.modelID);
 	});
-	const variants = $derived(Object.keys(selectedModel?.variants ?? {}));
+	const variants = $derived(selectedModel?.variants.map((variant) => variant.id) ?? []);
 
 	function modelOptionValue(providerID: string, modelID: string) {
 		return JSON.stringify({ providerID, modelID });
@@ -36,13 +36,9 @@
 <div class="controls">
 	<label>
 		<span>Model</span>
-		<select bind:value={modelValue} onchange={handleModelChange} disabled={disabled || providers.length === 0}>
-			{#each providers as provider (provider.id)}
-				<optgroup label={provider.name}>
-					{#each Object.values(provider.models) as model (model.id)}
-						<option value={modelOptionValue(provider.id, model.id)}>{model.name}</option>
-					{/each}
-				</optgroup>
+		<select bind:value={modelValue} onchange={handleModelChange} disabled={disabled || models.length === 0}>
+			{#each models as model (`${model.providerID}/${model.modelID}`)}
+				<option value={modelOptionValue(model.providerID, model.modelID)}>{model.providerID} / {model.name}</option>
 			{/each}
 		</select>
 	</label>
@@ -50,8 +46,8 @@
 	<label>
 		<span>Agent</span>
 		<select bind:value={agent} disabled={disabled || agents.length === 0}>
-			{#each agents as item (item.name)}
-				<option value={item.name}>{item.name}</option>
+			{#each agents as item (item.id)}
+				<option value={item.id}>{item.name}</option>
 			{/each}
 		</select>
 	</label>

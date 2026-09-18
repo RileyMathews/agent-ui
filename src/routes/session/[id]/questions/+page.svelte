@@ -1,243 +1,95 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { onMount } from 'svelte';
 	import { getProject, getServer, sessionHref } from '$lib/config';
 	import { getOpencode } from '$lib/opencode';
-	import {
-		answerQuestion,
-		listPendingQuestions,
-		rejectQuestion,
-		type PendingQuestion
-	} from '$lib/questions';
-
-	const sessionID = page.params.id;
+	import { answerFromValues, composeCustomValues, getForm, initialValues, isFieldVisible, listForms, validateForm, type FormValues } from '$lib/forms';
+	import type { FormDetail, FormField } from '@opencode/client';
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	const server = getServer(page.url.searchParams.get('server'));
 	const project = getProject(page.url.searchParams.get('project'));
-	const threadHref = server && project ? sessionHref(sessionID ?? '', server.id, project.id) : '/';
-	let directory = $state<string | undefined>();
-	let requests = $state<PendingQuestion[]>([]);
+	const threadHref = server && project ? sessionHref(page.params.id ?? '', server.id, project.id) : '/';
+	let form = $state<FormDetail | null>(null);
+	let values = $state<FormValues>({});
+	let errors = $state<Record<string, string>>({});
 	let loading = $state(true);
 	let submitting = $state(false);
-	let error = $state<string | null>(null);
-	let answers = $state<string[][]>([]);
-	let customAnswers = $state<string[]>([]);
+	let message = $state('');
+	let customFields = $state<Record<string, boolean>>({});
+	let customValues = $state<Record<string, string>>({});
+	let disposed = false;
+	const sessionID = page.params.id ?? '';
 
-	const request = $derived(requests[0]);
-	let questionIndex = $state(0);
-	const question = $derived(request?.questions[questionIndex]);
-
-	function selected(label: string) {
-		return (answers[questionIndex] ?? []).includes(label);
-	}
-
-	function choose(label: string) {
-		if (!question) return;
-		const current = answers[questionIndex] ?? [];
-		const next = question.multiple
-			? current.includes(label) ? current.filter((value) => value !== label) : [...current, label]
-			: current.includes(label) ? [] : [label];
-		answers = [...answers.slice(0, questionIndex), next, ...answers.slice(questionIndex + 1)];
-	}
-
-	function setCustomAnswer(event: Event) {
-		const value = (event.currentTarget as HTMLInputElement).value;
-		customAnswers = [...customAnswers.slice(0, questionIndex), value, ...customAnswers.slice(questionIndex + 1)];
-	}
-
-	function currentAnswer() {
-		const selectedAnswers = answers[questionIndex] ?? [];
-		const custom = customAnswers[questionIndex]?.trim();
-		return custom ? [...selectedAnswers, custom] : selectedAnswers;
-	}
-
-	function canContinue() {
-		return currentAnswer().length > 0;
-	}
-
-	function nextQuestion() {
-		if (!request || !canContinue()) return;
-		if (questionIndex < request.questions.length - 1) questionIndex += 1;
-		else void submitRequest();
-	}
-
-	function previousQuestion() {
-		if (questionIndex > 0) questionIndex -= 1;
-	}
-
-	async function loadQuestions() {
-		if (!sessionID || !server || !project) {
-			error = 'The question link is missing its project or server.';
-			loading = false;
-			return;
-		}
-
+	async function load() {
+		if (!server || !sessionID) { loading = false; message = 'This form link is incomplete.'; return; }
+		loading = true;
 		try {
-			const session = (await getOpencode(server.url).session.get({ path: { id: sessionID }, query: { directory: project.directory } })) as unknown as { directory: string };
-			directory = session.directory;
-			requests = await listPendingQuestions(server.url, session.directory, sessionID);
-			if (requests.length === 0) questionIndex = 0;
-			else if (questionIndex >= requests[0].questions.length) questionIndex = 0;
-			error = null;
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Unable to load pending questions.';
-		} finally {
-			loading = false;
+			const pending = await listForms(server.url, sessionID);
+			if (!pending.length) { await goto(threadHref); return; }
+			for (const info of pending) {
+				try {
+					const detail = await getForm(server.url, sessionID, info.id);
+					if (detail.state.status === 'pending') { form = detail; values = initialValues(detail.fields); errors = {}; customFields = {}; customValues = {}; message = ''; return; }
+				} catch { /* Move on when a listed form has already disappeared. */ }
+			}
+			await goto(threadHref);
+		} catch (cause) { if (!disposed) message = cause instanceof Error ? cause.message : 'Unable to load this form.'; }
+		finally { if (!disposed) loading = false; }
+	}
+
+	function setValue(key: string, value: FormValues[string]) { values = { ...values, [key]: value }; errors = { ...errors, [key]: '' }; }
+	function numberValue(event: Event, field: FormField) { const raw = (event.currentTarget as HTMLInputElement).value; setValue(field.key, raw === '' ? undefined : Number(raw)); }
+	function toggleOption(event: Event, key: string, option: string) { const current = Array.isArray(values[key]) ? values[key] as string[] : []; const next = (event.currentTarget as HTMLInputElement).checked ? [...current, option] : current.filter((value) => value !== option); setValue(key, next); }
+	function setCustomOption(field: FormField, value: string) {
+		if (field.type === 'string') { customValues = { ...customValues, [field.key]: value }; setValue(field.key, value); return; }
+		if (field.type === 'multiselect') {
+			const previous = customValues[field.key];
+			const current = Array.isArray(values[field.key]) && previous ? (values[field.key] as string[]).filter((option) => option !== previous) : values[field.key];
+			setValue(field.key, composeCustomValues(current, value));
+			customValues = { ...customValues, [field.key]: value };
 		}
 	}
 
-	async function submitRequest() {
-		if (!request || !directory || !server || submitting || !canContinue()) return;
+	async function reply() {
+		if (!form || !server || submitting) return;
+		errors = validateForm(form.fields, values);
+		if (Object.keys(errors).length) return;
+		submitting = true; message = '';
+		try { await getOpencode(server.url).session.form.reply({ sessionID, formID: form.id, answer: answerFromValues(form.fields, values) }); await load(); }
+		catch (cause) { message = cause instanceof Error ? cause.message : 'Unable to submit the form.'; }
+		finally { submitting = false; }
+	}
+
+	async function cancel() {
+		if (!form || !server || submitting || !confirm('Dismiss this form and continue without answering?')) return;
 		submitting = true;
-		error = null;
-		try {
-			const allAnswers = answers.map((value, index) => {
-				const custom = customAnswers[index]?.trim();
-				return custom ? [...value, custom] : value;
-			});
-			await answerQuestion(server.url, directory, request.id, allAnswers);
-			requests = requests.filter((candidate) => candidate.id !== request.id);
-			answers = [];
-			customAnswers = [];
-			questionIndex = 0;
-			if (requests.length === 0) await goto(threadHref);
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Unable to submit these answers.';
-		} finally {
-			submitting = false;
-		}
+		try { await getOpencode(server.url).session.form.cancel({ sessionID, formID: form.id }); await load(); }
+		catch (cause) { message = cause instanceof Error ? cause.message : 'Unable to dismiss the form.'; }
+		finally { submitting = false; }
 	}
 
-	async function reject() {
-		if (!request || !directory || !server || submitting) return;
-		submitting = true;
-		error = null;
-		try {
-			await rejectQuestion(server.url, directory, request.id);
-			requests = requests.filter((candidate) => candidate.id !== request.id);
-			answers = [];
-			customAnswers = [];
-			questionIndex = 0;
-			if (requests.length === 0) await goto(threadHref);
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Unable to dismiss this question.';
-		} finally {
-			submitting = false;
-		}
-	}
-
-	onMount(() => {
-		const resume = () => {
-			if (!document.hidden && !submitting) void loadQuestions();
-		};
-		void loadQuestions();
-		window.addEventListener('pageshow', resume);
-		window.addEventListener('online', resume);
-		document.addEventListener('visibilitychange', resume);
-		return () => {
-			window.removeEventListener('pageshow', resume);
-			window.removeEventListener('online', resume);
-			document.removeEventListener('visibilitychange', resume);
-		};
-	});
+	onMount(() => { void load(); const resume = () => { if (!document.hidden) void load(); }; window.addEventListener('pageshow', resume); window.addEventListener('online', resume); document.addEventListener('visibilitychange', resume); return () => { disposed = true; window.removeEventListener('pageshow', resume); window.removeEventListener('online', resume); document.removeEventListener('visibilitychange', resume); }; });
 </script>
 
-<svelte:head><title>Answer questions</title><meta name="theme-color" content="#111315" /></svelte:head>
-
-<main>
-	<header>
-		<a class="back" href={threadHref}>Back to thread</a>
-		<p class="eyebrow">Agent input</p>
-		<h1>Answer questions</h1>
-		<p class="intro">The agent is waiting for your answers before it can continue.</p>
-	</header>
-
-	{#if loading}
-		<p class="status"><span class="spinner" aria-hidden="true"></span> Loading questions...</p>
-	{:else if error}
-		<p class="status error" role="alert">{error}</p>
-	{:else if !request || !question}
-		<section class="empty-state">
-			<h2>No pending questions</h2>
-			<p>This request may have already been answered in another tab.</p>
-			<a class="primary" href={threadHref}>Return to thread</a>
-		</section>
-	{:else}
-		<section class="question-panel" aria-labelledby="question-heading">
-			<div class="progress" aria-label={`Question ${questionIndex + 1} of ${request.questions.length}`}>
-				<span>Question {questionIndex + 1} of {request.questions.length}</span>
-				<span>{question.header}</span>
-			</div>
-			<h2 id="question-heading">{question.question}</h2>
-			<div class="options" role={question.multiple ? 'group' : 'radiogroup'} aria-label={question.header}>
-				{#each question.options as option}
-					<label class="option" class:selected={selected(option.label)}>
-						<input
-							type={question.multiple ? 'checkbox' : 'radio'}
-							name={`question-${questionIndex}`}
-							value={option.label}
-							checked={selected(option.label)}
-							onchange={() => choose(option.label)}
-						/>
-						<span>
-							<strong>{option.label}</strong>
-							<small>{option.description}</small>
-						</span>
-					</label>
-				{/each}
-			</div>
-			{#if question.custom}
-				<label class="custom-answer">
-					<span>Your answer</span>
-					<input value={customAnswers[questionIndex] ?? ''} oninput={setCustomAnswer} placeholder="Type a custom answer" />
-				</label>
+<svelte:head><title>{form?.title ?? 'Agent input'}</title></svelte:head>
+<main><a class="back" href={threadHref}>← Back to thread</a>{#if loading}<p class="status">Loading form…</p>{:else if message && !form}<p class="status error" role="alert">{message}</p>{:else if form}
+	<h1>{form.title}</h1><p class="intro">Complete this form to continue the session. You can dismiss it instead.</p>
+	<form onsubmit={(event) => { event.preventDefault(); void reply(); }}>
+		{#each form.fields as field (field.key)}
+			{#if isFieldVisible(field, values)}
+				<fieldset class:external={field.type === 'external'}>
+					<legend>{field.title ?? field.key}{#if 'required' in field && field.required}<span aria-label="required"> *</span>{/if}</legend>
+					{#if field.description}<p class="description">{field.description}</p>{/if}
+					{#if field.type === 'external'}<a href={field.url} target="_blank" rel="noreferrer">Open external input ↗</a>
+					{:else if field.type === 'boolean'}<label class="check"><input type="checkbox" checked={values[field.key] === true} onchange={(event) => setValue(field.key, event.currentTarget.checked)} /> Yes</label>
+					{:else if field.type === 'string'}{#if field.options}<select aria-label={field.title ?? field.key} value={customFields[field.key] ? '__custom__' : values[field.key] as string ?? ''} onchange={(event) => { const selected = event.currentTarget.value; customFields = { ...customFields, [field.key]: selected === '__custom__' }; if (selected !== '__custom__') setValue(field.key, selected); }}><option value="">Choose…</option>{#each field.options as option}<option value={option.value}>{option.label}</option>{/each}{#if field.custom}<option value="__custom__">Custom…</option>{/if}</select>{#if customFields[field.key]}<input aria-label={`${field.title ?? field.key} custom value`} type={field.format === 'email' ? 'email' : field.format === 'uri' ? 'url' : field.format === 'date' ? 'date' : field.format === 'date-time' ? 'datetime-local' : 'text'} value={customValues[field.key] ?? ''} placeholder={field.placeholder} minlength={field.minLength} maxlength={field.maxLength} pattern={field.pattern} oninput={(event) => setCustomOption(field, event.currentTarget.value)} />{/if}{:else}<input aria-label={field.title ?? field.key} type={field.format === 'email' ? 'email' : field.format === 'uri' ? 'url' : field.format === 'date' ? 'date' : field.format === 'date-time' ? 'datetime-local' : 'text'} value={values[field.key] as string ?? ''} placeholder={field.placeholder} minlength={field.minLength} maxlength={field.maxLength} pattern={field.pattern} oninput={(event) => setValue(field.key, event.currentTarget.value)} />{/if}
+					{:else if field.type === 'multiselect'}<div class="options">{#each field.options as option (option.value)}<label class="check"><input type="checkbox" checked={Array.isArray(values[field.key]) && (values[field.key] as string[]).includes(option.value)} onchange={(event) => toggleOption(event, field.key, option.value)} />{option.label}</label>{/each}{#if field.custom}<input aria-label={`${field.title ?? field.key} custom value`} type="text" value={customValues[field.key] ?? ''} placeholder="Add custom value" oninput={(event) => setCustomOption(field, event.currentTarget.value)} />{/if}</div>
+					{:else}<input aria-label={field.title ?? field.key} type="number" step={field.type === 'integer' ? '1' : 'any'} value={values[field.key] as number ?? ''} min={field.minimum as number | undefined} max={field.maximum as number | undefined} oninput={(event) => numberValue(event, field)} />{/if}
+					{#if errors[field.key]}<p id={`${field.key}-error`} class="field-error" role="alert">{errors[field.key]}</p>{/if}
+				</fieldset>
 			{/if}
-			<div class="actions">
-				<button class="secondary" type="button" onclick={previousQuestion} disabled={questionIndex === 0 || submitting}>Back</button>
-				<button class="primary" type="button" onclick={nextQuestion} disabled={!canContinue() || submitting}>{questionIndex === request.questions.length - 1 ? (submitting ? 'Sending...' : 'Send answers') : 'Next'}</button>
-			</div>
-			<button class="reject" type="button" onclick={reject} disabled={submitting}>Dismiss question</button>
-		</section>
-	{/if}
-</main>
-
-<style>
-	main { max-width: var(--content-width); margin: 0 auto; padding: 1.25rem 1rem 3rem; }
-	header { margin-bottom: 2rem; }
-	.back { display: inline-block; margin-bottom: 2.5rem; color: var(--color-muted); font-size: 0.85rem; text-decoration: none; }
-	.back::before { content: '← '; }
-	.eyebrow { margin: 0 0 0.45rem; color: var(--color-accent); font-size: 0.7rem; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase; }
-	h1 { margin: 0; font-size: clamp(2.25rem, 11vw, 3.25rem); letter-spacing: -0.07em; line-height: 0.92; }
-	.intro { max-width: 28rem; margin: 1rem 0 0; color: var(--color-muted); line-height: 1.5; }
-	a:focus-visible, button:focus-visible, input:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
-	.status, .empty-state, .question-panel { border: 1px solid var(--color-border); border-radius: 0.9rem; background: var(--color-panel); }
-	.status { display: flex; align-items: center; gap: 0.55rem; margin: 0; padding: 1rem 1.1rem; color: var(--color-muted); }
-	.status.error { border-color: #603638; color: var(--color-error); }
-	.spinner { width: 0.8rem; height: 0.8rem; border: 2px solid #53605e; border-top-color: var(--color-accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
-	.empty-state { padding: 1.25rem; }
-	h2 { margin: 0; font-size: 1.2rem; letter-spacing: -0.025em; }
-	.empty-state p { color: var(--color-muted); line-height: 1.5; }
-	.question-panel { padding: 1rem; }
-	.progress { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1.2rem; color: var(--color-muted); font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
-	.progress span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-	.question-panel h2 { font-size: clamp(1.4rem, 7vw, 2rem); line-height: 1.1; }
-	.options { display: grid; gap: 0.55rem; margin-top: 1.25rem; }
-	.option { display: flex; align-items: flex-start; gap: 0.7rem; padding: 0.8rem; border: 1px solid var(--color-border); border-radius: 0.7rem; cursor: pointer; }
-	.option.selected { border-color: var(--color-accent); background: #1b2926; }
-	.option input { flex: 0 0 auto; width: 1.05rem; height: 1.05rem; margin: 0.1rem 0 0; accent-color: var(--color-accent); }
-	.option span { display: grid; gap: 0.2rem; }
-	.option strong { font-size: 0.86rem; }
-	.option small { color: var(--color-muted); font-size: 0.75rem; line-height: 1.4; }
-	.custom-answer { display: grid; gap: 0.4rem; margin-top: 1rem; color: var(--color-muted); font-size: 0.75rem; font-weight: 750; }
-	.custom-answer input { width: 100%; min-height: 2.8rem; padding: 0.7rem; border: 1px solid var(--color-border); border-radius: 0.6rem; background: #121617; color: var(--color-text); font: inherit; }
-	.actions { display: grid; grid-template-columns: auto 1fr; gap: 0.55rem; margin-top: 1.35rem; }
-	.actions button, .primary { display: flex; min-height: 3rem; align-items: center; justify-content: center; padding: 0.7rem 0.9rem; border: 1px solid var(--color-border); border-radius: 0.65rem; font: inherit; font-weight: 800; text-decoration: none; }
-	.primary { border-color: var(--color-accent); background: var(--color-accent); color: var(--color-background); }
-	.secondary { background: #242a2b; color: var(--color-text); cursor: pointer; }
-	.actions button:disabled { cursor: not-allowed; opacity: 0.45; }
-	.reject { display: block; margin: 1rem auto 0; border: 0; background: none; color: var(--color-muted); cursor: pointer; font: inherit; font-size: 0.75rem; text-decoration: underline; }
-	.reject:disabled { cursor: not-allowed; opacity: 0.5; }
-	@keyframes spin { to { transform: rotate(360deg); } }
-	@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
-	@media (min-width: 40rem) { main { padding-right: 1.5rem; padding-left: 1.5rem; } .question-panel { padding: 1.4rem; } }
-</style>
+		{/each}
+		{#if message}<p class="field-error" role="alert">{message}</p>{/if}<div class="actions"><button type="button" onclick={cancel} disabled={submitting}>Dismiss</button><button class="submit" type="submit" disabled={submitting}>{submitting ? 'Saving…' : 'Continue'}</button></div>
+	</form>
+{:else}<p class="status">No pending forms.</p>{/if}</main>
+<style>main { max-width: var(--content-width); margin: 0 auto; padding: 1.25rem 1rem 3rem; } .back, a { color: var(--color-accent); } h1 { margin: 1.5rem 0 .5rem; } .intro, .description { color: var(--color-muted); line-height: 1.5; } form { display: grid; gap: 1rem; margin-top: 1.5rem; } fieldset { display: grid; gap: .5rem; min-width: 0; padding: .9rem; border: 1px solid var(--color-border); border-radius: .7rem; background: var(--color-panel); } legend { padding: 0 .2rem; font-weight: 750; } .description { margin: 0; font-size: .8rem; } input:not([type='checkbox']), select { width: 100%; box-sizing: border-box; min-height: 2.6rem; padding: .5rem .65rem; border: 1px solid var(--color-border); border-radius: .5rem; background: var(--color-surface); color: inherit; font: inherit; } .check { display: flex; align-items: center; gap: .5rem; padding: .3rem 0; } input[type='checkbox'] { accent-color: var(--color-accent); } .options { display: grid; gap: .25rem; } .field-error, .error { color: var(--color-error); } .status { padding: 1rem; border: 1px solid var(--color-border); border-radius: .7rem; color: var(--color-muted); } .actions { display: flex; justify-content: end; gap: .6rem; } button { min-height: 2.6rem; padding: 0 .8rem; border: 1px solid var(--color-border); border-radius: .55rem; background: var(--color-panel); color: inherit; font: inherit; } .submit { border-color: var(--color-accent); background: var(--color-accent); color: var(--color-background); font-weight: 750; } button:disabled { opacity: .6; } a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }</style>

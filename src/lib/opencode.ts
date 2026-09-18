@@ -1,18 +1,12 @@
-import { createOpencodeClient } from '@opencode-ai/sdk/client';
-import { createOpencodeClient as createOpencodeV2Client } from '@opencode-ai/sdk/v2/client';
+import { OpenCode } from '@opencode/client';
+
+const OPENCODE_USERNAME = 'opencode';
+export const OPENCODE_PASSWORD = 'fhjqE1DSFo4MbH76Au559gm3WNgs1j6DatstSGWqYMM';
 
 export function getOpencode(server: string) {
-	return createOpencodeClient({
+	const credentials = `${OPENCODE_USERNAME}:${OPENCODE_PASSWORD}`;
+	return OpenCode.make({
 		baseUrl: server,
-		responseStyle: 'data',
-		throwOnError: true
-	});
-}
-
-export function getOpencodeV2(server: string) {
-	return createOpencodeV2Client({
-		baseUrl: server,
-		responseStyle: 'data',
-		throwOnError: true
+		headers: { Authorization: `Basic ${globalThis.btoa(credentials)}` }
 	});
 }

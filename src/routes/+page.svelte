@@ -2,8 +2,8 @@
 	import { onMount } from 'svelte';
 	import type { Server } from '$lib/config';
 	import { projects, servers, sessionHref } from '$lib/config';
-	import { getOpencodeV2 } from '$lib/opencode';
 	import { isReady, isWorking, loadInParallel, loadProjectServer, type ProjectServerState, type ServerLoad } from '$lib/sessions';
+	import { getOpencode } from '$lib/opencode';
 
 	type ProjectState = {
 		servers: ServerLoad<ProjectServerState>[];
@@ -15,8 +15,8 @@
 	let refreshing = $state(false);
 	let request = 0;
 	let selected = $state<Set<string>>(new Set());
-	let archiving = $state(false);
-	let archiveError = $state('');
+	let deleting = $state(false);
+	let deleteError = $state('');
 	const pendingCount = $derived(
 		projects.reduce(
 			(total, project) => total + (projectsState[project.id]?.servers ?? []).filter((load) => load.status === 'pending').length,
@@ -53,53 +53,36 @@
 		if (checked) next.add(key);
 		else next.delete(key);
 		selected = next;
-		archiveError = '';
+		deleteError = '';
 	}
 
 	function selectAllCurrent(checked: boolean) {
 		selected = checked ? new Set(currentSessions.map(sessionKey)) : new Set();
-		archiveError = '';
+		deleteError = '';
 	}
 
-	async function archiveSelected() {
-		if (archiving) return;
-		const items = currentSessions.filter((item) => selected.has(sessionKey(item)));
-		if (items.length === 0) return;
-
-		archiving = true;
-		archiveError = '';
-		const archived = Date.now();
-		const results = await Promise.allSettled(items.map((item) =>
-			getOpencodeV2(item.state.server.url).session.update({
-				sessionID: item.session.id,
-				directory: item.project.directory,
-				time: { archived }
-			})
-		));
-		const succeeded = new Set(items.filter((_, index) => results[index].status === 'fulfilled').map(sessionKey));
-
-		projectsState = Object.fromEntries(Object.entries(projectsState).map(([projectID, projectState]) => [
-			projectID,
-			{
-				servers: projectState.servers.map((load) =>
-					isReady(load)
-						? {
-								...load,
-								value: {
-									...load.value,
-									sessions: load.value.sessions.map((session) => succeeded.has(`${projectID}:${load.value.server.id}:${session.id}`)
-										? { ...session, time: { ...session.time, archived } }
-										: session)
-								}
-							}
-						: load
-				)
-			}
-		]));
-		selected = new Set([...selected].filter((key) => !succeeded.has(key)));
-		const failed = results.length - succeeded.size;
-		if (failed > 0) archiveError = `${failed} ${failed === 1 ? 'session' : 'sessions'} could not be archived. Try again.`;
-		archiving = false;
+	async function deleteSelected() {
+		if (deleting || selected.size === 0) return;
+		if (!confirm(`Permanently delete ${selected.size} session${selected.size === 1 ? '' : 's'}? This cannot be undone.`)) return;
+		deleting = true;
+		deleteError = '';
+		const failed: string[] = [];
+		const removed = new Set<string>();
+		await Promise.all([...selected].map(async (key) => {
+			const [projectID, serverID, sessionID] = key.split(':');
+			const server = servers.find((item) => item.id === serverID);
+			if (!server || !projectID || !sessionID) { failed.push(key); return; }
+			try { await getOpencode(server.url).session.remove({ sessionID }); removed.add(key); }
+			catch { failed.push(key); }
+		}));
+		selected = new Set(failed);
+		if (removed.size) {
+			projectsState = Object.fromEntries(Object.entries(projectsState).map(([projectID, state]) => [projectID, {
+				servers: state.servers.map((load) => isReady(load) ? { ...load, value: { ...load.value, sessions: load.value.sessions.filter((session) => !removed.has(`${projectID}:${load.value.server.id}:${session.id}`)) } } : load)
+			} ]));
+		}
+		if (failed.length) deleteError = `${failed.length} deletion${failed.length === 1 ? '' : 's'} failed. Select and retry.`;
+		deleting = false;
 	}
 
 	function activeCount(projectID: string) {
@@ -190,12 +173,12 @@
 							<span>Select all</span>
 						</label>
 						{#if selected.size > 0}
-							<button class="archive" type="button" onclick={archiveSelected} disabled={archiving}>
-								{archiving ? 'Archiving...' : `Archive (${selected.size})`}
+							<button class="delete" type="button" onclick={deleteSelected} disabled={deleting}>
+								{deleting ? 'Deleting...' : `Delete (${selected.size})`}
 							</button>
 						{/if}
 					</div>
-					{#if archiveError}<p class="archive-error" role="alert">{archiveError}</p>{/if}
+					{#if deleteError}<p class="delete-error" role="alert">{deleteError}</p>{/if}
 					<ul class="current-list">
 						{#each currentSessions as item (sessionKey(item))}
 							<li class:working={isWorking(item.state.statuses, item.session.id)}>
@@ -316,8 +299,8 @@
 	.session-actions { display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; margin-bottom: 0.65rem; }
 	.select-all { display: flex; align-items: center; gap: 0.45rem; color: var(--color-muted); font-size: 0.72rem; font-weight: 700; }
 	input[type='checkbox'] { width: 1.05rem; height: 1.05rem; margin: 0; accent-color: var(--color-accent); }
-	.archive { min-height: 2.2rem; padding: 0 0.7rem; border: 1px solid #725253; border-radius: 0.55rem; background: #382526; color: #ffd5d7; font: inherit; font-size: 0.72rem; font-weight: 800; }
-	.archive-error { margin: 0 0 0.65rem; color: var(--color-error); font-size: 0.75rem; }
+	.delete { min-height: 2.2rem; padding: 0 0.7rem; border: 1px solid #725253; border-radius: 0.55rem; background: #382526; color: #ffd5d7; font: inherit; font-size: 0.72rem; font-weight: 800; }
+	.delete-error { margin: 0 0 0.65rem; color: var(--color-error); font-size: 0.75rem; }
 	.current-list { display: grid; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
 	.current-list li { display: grid; grid-template-columns: auto minmax(0, 1fr); overflow: hidden; border: 1px solid var(--color-border); border-radius: 0.7rem; background: var(--color-surface); }
 	.current-list li.working { border-color: #315d72; }

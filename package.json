@@ -10,11 +10,9 @@
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --tsgo",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch --tsgo",
-		"test:e2e": "playwright test"
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch --tsgo"
 	},
 	"devDependencies": {
-		"@playwright/test": "^1.62.1",
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.63.0",
 		"@sveltejs/vite-plugin-svelte": "^7.1.2",
@@ -25,7 +23,7 @@
 		"vite": "^8.0.16"
 	},
 	"dependencies": {
-		"@opencode-ai/sdk": "^1.18.10",
+		"@opencode/client": "^2.0.8",
 		"dompurify": "^3.4.13",
 		"ghostty-web": "github:anomalyco/ghostty-web#83c0a07b8628b748aed073b232cb4b52a6ca11c1",
 		"marked": "^18.0.7"

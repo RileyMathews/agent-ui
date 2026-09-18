@@ -1,4 +1,8 @@
 allowBuilds:
   esbuild: true
+  msgpackr-extract: false
 minimumReleaseAgeExclude:
   - dompurify@3.4.13
+  - '@opencode/client@2.0.8'
+  - '@opencode/protocol@2.0.8'
+  - '@opencode/schema@2.0.8'
