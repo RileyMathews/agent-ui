@@ -11,8 +11,7 @@ export async function getAllMessages(client: OpenCodeClient, sessionID: string):
 		const page = await client.message.list({
 			sessionID,
 			limit: MESSAGE_PAGE_SIZE,
-			order: 'asc',
-			...(cursor ? { cursor } : {})
+			...(cursor ? { cursor } : { order: 'asc' })
 		});
 		messages.push(...page.data);
 
