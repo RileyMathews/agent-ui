@@ -5,6 +5,7 @@
 	import Markdown from '$lib/Markdown.svelte';
 	import { getProject, getServer } from '$lib/config';
 	import { getOpencode } from '$lib/opencode';
+	import { getAllMessages } from '$lib/messages';
 	import { goto } from '$app/navigation';
 
 	let { subAgent = false }: { subAgent?: boolean } = $props();
@@ -55,10 +56,10 @@
 		let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 		const refresh = async () => {
 			try {
-				const [session, history, pendingForms] = await Promise.all([client.session.get({ sessionID }), client.message.list({ sessionID, limit: 5000, order: 'asc' }), client.session.form.list({ sessionID })]);
+				const [session, history, pendingForms] = await Promise.all([client.session.get({ sessionID }), getAllMessages(client, sessionID), client.session.form.list({ sessionID })]);
 				if (disposed) return;
 				sessionTitle = session.title ?? 'Untitled session';
-				messages = history.data;
+				messages = history;
 				forms = pendingForms;
 				error = null;
 			} catch (cause) {

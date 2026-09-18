@@ -4,6 +4,7 @@
 	import type { SessionInfo, SessionMessageInfo } from '@opencode/client';
 	import { getProject, getServer, sessionHref } from '$lib/config';
 	import { getOpencode } from '$lib/opencode';
+	import { getAllMessages } from '$lib/messages';
 	const sessionID = page.params.id;
 	const server = getServer(page.url.searchParams.get('server'));
 	const project = getProject(page.url.searchParams.get('project'));
@@ -15,7 +16,7 @@
 	onMount(() => {
 		if (!sessionID || !server) return error = 'The session link is missing its server.';
 		const client = getOpencode(server.url);
-		void Promise.all([client.session.get({ sessionID }), client.message.list({ sessionID, limit: 5000 }), client.session.diff({ sessionID })]).then(([loaded, history, changes]) => { session = loaded; messages = history.data; diffs = changes; }).catch((cause) => error = cause instanceof Error ? cause.message : 'Unable to load session details.');
+		void Promise.all([client.session.get({ sessionID }), getAllMessages(client, sessionID), client.session.diff({ sessionID })]).then(([loaded, history, changes]) => { session = loaded; messages = history; diffs = changes; }).catch((cause) => error = cause instanceof Error ? cause.message : 'Unable to load session details.');
 	});
 </script>
 <main>
