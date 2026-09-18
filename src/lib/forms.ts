@@ -31,7 +31,14 @@ export function validateForm(fields: FormField[], values: FormValues): Record<st
 		if (field.required && (value === undefined || value === '' || (Array.isArray(value) && value.length === 0))) errors[field.key] = 'This field is required.';
 		if ((field.type === 'number' || field.type === 'integer') && value !== undefined && (typeof value !== 'number' || !Number.isFinite(value))) errors[field.key] = 'Enter a valid number.';
 		if ((field.type === 'number' || field.type === 'integer') && typeof value === 'number' && ((field.minimum !== undefined && value < Number(field.minimum)) || (field.maximum !== undefined && value > Number(field.maximum)) || (field.type === 'integer' && !Number.isInteger(value)))) errors[field.key] = 'Enter a value in the allowed range.';
-		if (field.type === 'multiselect' && Array.isArray(value) && ((field.minItems !== undefined && value.length < field.minItems) || (field.maxItems !== undefined && value.length > field.maxItems))) errors[field.key] = 'Choose the allowed number of options.';
+		if (field.type === 'multiselect' && Array.isArray(value) && ((field.minItems !== undefined && value.length < field.minItems) || (field.maxItems !== undefined && value.length > field.maxItems))) errors[field.key] = field.minItems !== undefined && value.length < field.minItems ? `Choose at least ${field.minItems} options.` : `Choose no more than ${field.maxItems} options.`;
+		if (field.type === 'string' && typeof value === 'string') {
+			if (field.minLength !== undefined && value.length < field.minLength) errors[field.key] = `Enter at least ${field.minLength} characters.`;
+			if (field.maxLength !== undefined && value.length > field.maxLength) errors[field.key] = `Enter no more than ${field.maxLength} characters.`;
+			if (field.pattern) {
+				try { if (!new RegExp(field.pattern).test(value)) errors[field.key] = 'Enter a value in the required format.'; } catch { /* Invalid server patterns are ignored. */ }
+			}
+		}
 	}
 	return errors;
 }
@@ -42,4 +49,11 @@ export function answerFromValues(fields: FormField[], values: FormValues): FormA
 		if (isFieldVisible(field, values) && field.type !== 'external' && values[field.key] !== undefined) answer[field.key] = values[field.key]!;
 	}
 	return answer;
+}
+
+/** Keep a custom multiselect value in the same shape as the generated answer. */
+export function composeCustomValues(current: FormValue | undefined, custom: string): string[] {
+	const selected = Array.isArray(current) ? current.filter((value): value is string => typeof value === 'string') : [];
+	const trimmed = custom.trim();
+	return [...new Set([...selected, ...(trimmed ? [trimmed] : [])])].filter((value) => value.length > 0);
 }

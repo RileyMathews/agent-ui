@@ -2,7 +2,7 @@
 	import { page } from '$app/state';
 	import { getProject, getServer, sessionHref } from '$lib/config';
 	import { getOpencode } from '$lib/opencode';
-	import { answerFromValues, getForm, initialValues, isFieldVisible, listForms, validateForm, type FormValues } from '$lib/forms';
+	import { answerFromValues, composeCustomValues, getForm, initialValues, isFieldVisible, listForms, validateForm, type FormValues } from '$lib/forms';
 	import type { FormDetail, FormField } from '@opencode/client';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
@@ -15,6 +15,8 @@
 	let loading = $state(true);
 	let submitting = $state(false);
 	let message = $state('');
+	let customFields = $state<Record<string, boolean>>({});
+	let customValues = $state<Record<string, string>>({});
 	let disposed = false;
 	const sessionID = page.params.id ?? '';
 
@@ -24,9 +26,13 @@
 		try {
 			const pending = await listForms(server.url, sessionID);
 			if (!pending.length) { await goto(threadHref); return; }
-			const detail = await getForm(server.url, sessionID, pending[0].id);
-			if (detail.state.status !== 'pending') { await load(); return; }
-			form = detail; values = initialValues(detail.fields); errors = {}; message = '';
+			for (const info of pending) {
+				try {
+					const detail = await getForm(server.url, sessionID, info.id);
+					if (detail.state.status === 'pending') { form = detail; values = initialValues(detail.fields); errors = {}; customFields = {}; customValues = {}; message = ''; return; }
+				} catch { /* Move on when a listed form has already disappeared. */ }
+			}
+			await goto(threadHref);
 		} catch (cause) { if (!disposed) message = cause instanceof Error ? cause.message : 'Unable to load this form.'; }
 		finally { if (!disposed) loading = false; }
 	}
@@ -34,6 +40,15 @@
 	function setValue(key: string, value: FormValues[string]) { values = { ...values, [key]: value }; errors = { ...errors, [key]: '' }; }
 	function numberValue(event: Event, field: FormField) { const raw = (event.currentTarget as HTMLInputElement).value; setValue(field.key, raw === '' ? undefined : Number(raw)); }
 	function toggleOption(event: Event, key: string, option: string) { const current = Array.isArray(values[key]) ? values[key] as string[] : []; const next = (event.currentTarget as HTMLInputElement).checked ? [...current, option] : current.filter((value) => value !== option); setValue(key, next); }
+	function setCustomOption(field: FormField, value: string) {
+		if (field.type === 'string') { customValues = { ...customValues, [field.key]: value }; setValue(field.key, value); return; }
+		if (field.type === 'multiselect') {
+			const previous = customValues[field.key];
+			const current = Array.isArray(values[field.key]) && previous ? (values[field.key] as string[]).filter((option) => option !== previous) : values[field.key];
+			setValue(field.key, composeCustomValues(current, value));
+			customValues = { ...customValues, [field.key]: value };
+		}
+	}
 
 	async function reply() {
 		if (!form || !server || submitting) return;
@@ -67,10 +82,10 @@
 					{#if field.description}<p class="description">{field.description}</p>{/if}
 					{#if field.type === 'external'}<a href={field.url} target="_blank" rel="noreferrer">Open external input ↗</a>
 					{:else if field.type === 'boolean'}<label class="check"><input type="checkbox" checked={values[field.key] === true} onchange={(event) => setValue(field.key, event.currentTarget.checked)} /> Yes</label>
-					{:else if field.type === 'multiselect'}<div class="options">{#each field.options as option (option.value)}<label class="check"><input type="checkbox" checked={Array.isArray(values[field.key]) && (values[field.key] as string[]).includes(option.value)} onchange={(event) => toggleOption(event, field.key, option.value)} />{option.label}</label>{/each}</div>
-					{:else if field.type === 'string'}{#if field.options}<select value={values[field.key] as string ?? ''} onchange={(event) => setValue(field.key, event.currentTarget.value)}><option value="">Choose…</option>{#each field.options as option}<option value={option.value}>{option.label}</option>{/each}</select>{:else}<input type={field.format === 'email' ? 'email' : field.format === 'uri' ? 'url' : 'text'} value={values[field.key] as string ?? ''} placeholder={field.placeholder} minlength={field.minLength} maxlength={field.maxLength} oninput={(event) => setValue(field.key, event.currentTarget.value)} />{/if}
-					{:else}<input type="number" step={field.type === 'integer' ? '1' : 'any'} value={values[field.key] as number ?? ''} min={field.minimum as number | undefined} max={field.maximum as number | undefined} oninput={(event) => numberValue(event, field)} />{/if}
-					{#if errors[field.key]}<p class="field-error" role="alert">{errors[field.key]}</p>{/if}
+					{:else if field.type === 'string'}{#if field.options}<select aria-label={field.title ?? field.key} value={customFields[field.key] ? '__custom__' : values[field.key] as string ?? ''} onchange={(event) => { const selected = event.currentTarget.value; customFields = { ...customFields, [field.key]: selected === '__custom__' }; if (selected !== '__custom__') setValue(field.key, selected); }}><option value="">Choose…</option>{#each field.options as option}<option value={option.value}>{option.label}</option>{/each}{#if field.custom}<option value="__custom__">Custom…</option>{/if}</select>{#if customFields[field.key]}<input aria-label={`${field.title ?? field.key} custom value`} type={field.format === 'email' ? 'email' : field.format === 'uri' ? 'url' : field.format === 'date' ? 'date' : field.format === 'date-time' ? 'datetime-local' : 'text'} value={customValues[field.key] ?? ''} placeholder={field.placeholder} minlength={field.minLength} maxlength={field.maxLength} pattern={field.pattern} oninput={(event) => setCustomOption(field, event.currentTarget.value)} />{/if}{:else}<input aria-label={field.title ?? field.key} type={field.format === 'email' ? 'email' : field.format === 'uri' ? 'url' : field.format === 'date' ? 'date' : field.format === 'date-time' ? 'datetime-local' : 'text'} value={values[field.key] as string ?? ''} placeholder={field.placeholder} minlength={field.minLength} maxlength={field.maxLength} pattern={field.pattern} oninput={(event) => setValue(field.key, event.currentTarget.value)} />{/if}
+					{:else if field.type === 'multiselect'}<div class="options">{#each field.options as option (option.value)}<label class="check"><input type="checkbox" checked={Array.isArray(values[field.key]) && (values[field.key] as string[]).includes(option.value)} onchange={(event) => toggleOption(event, field.key, option.value)} />{option.label}</label>{/each}{#if field.custom}<input aria-label={`${field.title ?? field.key} custom value`} type="text" value={customValues[field.key] ?? ''} placeholder="Add custom value" oninput={(event) => setCustomOption(field, event.currentTarget.value)} />{/if}</div>
+					{:else}<input aria-label={field.title ?? field.key} type="number" step={field.type === 'integer' ? '1' : 'any'} value={values[field.key] as number ?? ''} min={field.minimum as number | undefined} max={field.maximum as number | undefined} oninput={(event) => numberValue(event, field)} />{/if}
+					{#if errors[field.key]}<p id={`${field.key}-error`} class="field-error" role="alert">{errors[field.key]}</p>{/if}
 				</fieldset>
 			{/if}
 		{/each}
