@@ -3,13 +3,13 @@
 	import { page } from '$app/state';
 	import { getProject, servers, sessionHref } from '$lib/config';
 	import { isReady, isWorking, loadInParallel, loadProjectServer, type ProjectServerState, type ServerLoad } from '$lib/sessions';
+	import { getOpencode } from '$lib/opencode';
 
 	const project = getProject(page.params.id);
 	let serverStates = $state<Record<string, ServerLoad<ProjectServerState>>>({});
-	let showArchived = $state(false);
 	let selected = $state<Set<string>>(new Set());
-	let archiving = $state(false);
-	let archiveError = $state('');
+	let deleting = $state(false);
+	let deleteError = $state('');
 	let request = 0;
 	const readyStates = $derived(
 		servers
@@ -27,9 +27,7 @@
 			.flatMap((state) => state.sessions.map((session) => ({ session, state })))
 			.sort((left, right) => right.session.time.updated - left.session.time.updated)
 	);
-	const visibleSessions = $derived(
-		showArchived ? sessions : sessions.filter((item) => item.session.time.archived === undefined)
-	);
+	const visibleSessions = $derived(sessions.filter((item) => item.session.time.archived === undefined));
 	const allVisibleSelected = $derived(
 		visibleSessions.length > 0 && visibleSessions.every((item) => selected.has(sessionKey(item)))
 	);
@@ -53,7 +51,7 @@
 		if (checked) next.add(key);
 		else next.delete(key);
 		selected = next;
-		archiveError = '';
+		deleteError = '';
 	}
 
 	function selectAllVisible(checked: boolean) {
@@ -63,21 +61,22 @@
 			else next.delete(sessionKey(item));
 		}
 		selected = next;
-		archiveError = '';
+		deleteError = '';
 	}
 
-	function setShowArchived(checked: boolean) {
-		showArchived = checked;
-		if (!checked) {
-			const archivedKeys = new Set(sessions
-				.filter((item) => item.session.time.archived !== undefined)
-				.map(sessionKey));
-			selected = new Set([...selected].filter((key) => !archivedKeys.has(key)));
-		}
-	}
-
-	async function archiveSelected() {
-		archiveError = 'OpenCode V2 does not currently expose an archive operation.';
+	async function deleteSelected() {
+		if (deleting || selected.size === 0 || !confirm(`Permanently delete ${selected.size} session${selected.size === 1 ? '' : 's'}? This cannot be undone.`)) return;
+		deleting = true; deleteError = '';
+		const failed: string[] = []; const removed = new Set<string>();
+		await Promise.all([...selected].map(async (key) => {
+			const [serverID, sessionID] = key.split(':'); const server = servers.find((item) => item.id === serverID);
+			if (!server || !sessionID) { failed.push(key); return; }
+			try { await getOpencode(server.url).session.remove({ sessionID }); removed.add(key); } catch { failed.push(key); }
+		}));
+		selected = new Set(failed);
+		if (removed.size) serverStates = Object.fromEntries(Object.entries(serverStates).map(([id, load]) => [id, isReady(load) ? { ...load, value: { ...load.value, sessions: load.value.sessions.filter((session) => !removed.has(`${id}:${session.id}`)) } } : load]));
+		if (failed.length) deleteError = `${failed.length} deletion${failed.length === 1 ? '' : 's'} failed. Select and retry.`;
+		deleting = false;
 	}
 
 	async function refresh() {
@@ -162,24 +161,20 @@
 						<span>Select all</span>
 					</label>
 					<div class="session-buttons">
-						<label class="archived-toggle">
-							<input type="checkbox" checked={showArchived} onchange={(event) => setShowArchived(event.currentTarget.checked)} />
-							<span>Show archived</span>
-						</label>
 						{#if selected.size > 0}
-							<button class="archive" type="button" onclick={archiveSelected} disabled={archiving}>
-								{archiving ? 'Archiving...' : `Archive (${selected.size})`}
+							<button class="delete" type="button" onclick={deleteSelected} disabled={deleting}>
+								{deleting ? 'Deleting...' : `Delete (${selected.size})`}
 							</button>
 						{/if}
 					</div>
 				</div>
-				{#if archiveError}<p class="archive-error" role="alert">{archiveError}</p>{/if}
+				{#if deleteError}<p class="delete-error" role="alert">{deleteError}</p>{/if}
 				{#if visibleSessions.length === 0}
-					<p class="status">No active sessions. Turn on "Show archived" to view archived sessions.</p>
+					<p class="status">No active sessions.</p>
 				{:else}
 					<ul>
 						{#each visibleSessions as item (sessionKey(item))}
-							<li class:working={isWorking(item.state.statuses, item.session.id)} class:archived={item.session.time.archived !== undefined}>
+							<li class:working={isWorking(item.state.statuses, item.session.id)}>
 								<label class="session-select" aria-label={`Select ${item.session.title || 'Untitled session'}`}>
 									<input
 										type="checkbox"
@@ -234,16 +229,15 @@
 	.status, .server-note { margin: 0; padding: 1rem 1.1rem; border: 1px solid var(--color-border); border-radius: 0.75rem; background: var(--color-panel); color: var(--color-muted); }
 	.status.error { border-color: #603638; color: var(--color-error); }
 	.session-actions { display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; margin-bottom: 0.65rem; }
-	.select-all, .archived-toggle { display: flex; align-items: center; gap: 0.45rem; color: var(--color-muted); font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
+	.select-all { display: flex; align-items: center; gap: 0.45rem; color: var(--color-muted); font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
 	.session-buttons { display: flex; flex-wrap: wrap; align-items: center; justify-content: end; gap: 0.55rem; }
 	input[type='checkbox'] { width: 1.05rem; height: 1.05rem; margin: 0; accent-color: var(--color-accent); }
-	.archive { min-height: 2.2rem; padding: 0 0.7rem; border: 1px solid #725253; border-radius: 0.55rem; background: #382526; color: #ffd5d7; font: inherit; font-size: 0.72rem; font-weight: 800; }
-	.archive:disabled { opacity: 0.6; }
-	.archive-error { margin: 0 0 0.65rem; color: var(--color-error); font-size: 0.75rem; }
+	.delete { min-height: 2.2rem; padding: 0 0.7rem; border: 1px solid #725253; border-radius: 0.55rem; background: #382526; color: #ffd5d7; font: inherit; font-size: 0.72rem; font-weight: 800; }
+	.delete:disabled { opacity: 0.6; }
+	.delete-error { margin: 0 0 0.65rem; color: var(--color-error); font-size: 0.75rem; }
 	ul { display: grid; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
 	li { display: grid; grid-template-columns: auto minmax(0, 1fr); overflow: hidden; border: 1px solid var(--color-border); border-radius: 0.7rem; background: var(--color-surface); }
 	li.working { border-color: #315d72; }
-	li.archived { border-left: 0.3rem solid #697170; }
 	.session-select { display: grid; align-items: start; padding: 1.05rem 0 1rem 0.85rem; }
 	li a { display: grid; gap: 0.55rem; padding: 0.95rem; color: inherit; text-decoration: none; }
 	li a > div { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
@@ -257,7 +251,7 @@
 	a:focus-visible, button:focus-visible, input:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 	@keyframes spin { to { transform: rotate(360deg); } }
 	@keyframes pulse { 50% { opacity: 0.45; } }
-	@media (hover: hover) { li:hover { border-color: #4a5956; background: #1d2224; } li.archived:hover { border-left-color: #697170; } }
+	@media (hover: hover) { li:hover { border-color: #4a5956; background: #1d2224; } }
 	@media (prefers-reduced-motion: reduce) { .spinner, .checkout.loading span { animation: none; } }
 	@media (min-width: 40rem) { main { padding-right: 1.5rem; padding-left: 1.5rem; } }
 </style>
