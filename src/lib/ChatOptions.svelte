@@ -37,7 +37,7 @@
 	<label>
 		<span>Model</span>
 		<select bind:value={modelValue} onchange={handleModelChange} disabled={disabled || models.length === 0}>
-			{#each models as model (model.id)}
+			{#each models as model (`${model.providerID}/${model.modelID}`)}
 				<option value={modelOptionValue(model.providerID, model.modelID)}>{model.providerID} / {model.name}</option>
 			{/each}
 		</select>
