@@ -5,6 +5,7 @@
 	import type { AgentInfo, ModelInfo } from '@opencode/client';
 	import { getProject, getServer, sessionHref } from '$lib/config';
 	import { getOpencode } from '$lib/opencode';
+	import { dedupeModels } from '$lib/models';
 	import PromptComposer from '$lib/PromptComposer.svelte';
 	import ChatOptions from '$lib/ChatOptions.svelte';
 
@@ -68,7 +69,7 @@
 				opencode.agent.list({ location: { directory } })
 			]);
 			if (activeRequest !== optionsRequest) return;
-			models = modelResponse.data.filter((model) => model.enabled);
+			models = dedupeModels(modelResponse.data.filter((model) => model.enabled));
 			agents = agentResponse.data.filter((candidate) => !candidate.hidden && (candidate.mode === 'primary' || candidate.mode === 'all'));
 			const selectedModel = session.model && models.some((model) => model.providerID === session.model?.providerID && model.modelID === session.model.id) ? session.model : undefined;
 			const fallbackModel = models[0];
