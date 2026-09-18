@@ -16,6 +16,8 @@
 	const query = server && project ? new URLSearchParams({ server: server.id, project: project.id }) : undefined;
 	const threadHref = $derived(query ? `/session/${encodeURIComponent(sessionID ?? '')}?${query}` : '/');
 	const formsHref = $derived(query ? `/session/${encodeURIComponent(sessionID ?? '')}/questions?${query}` : '/');
+	const promptHref = $derived(query && sessionID ? `/session/${encodeURIComponent(sessionID)}/prompt?${query}` : '/');
+	const backHref = $derived(subAgent && query && parentSessionID ? `/session/${encodeURIComponent(parentSessionID)}?${query}` : project ? `/project/${project.id}` : '/');
 	let messages = $state<SessionMessageInfo[]>([]);
 	let sessionTitle = $state('Session history');
 	let loading = $state(true);
@@ -114,7 +116,7 @@
 			</article>
 		{/each}</section>
 	{/if}
-	<footer><a href={subAgent ? `/session/${parentSessionID}?${query}` : project ? `/project/${project.id}` : '/'}>← Back</a><a href={`${threadHref}/prompt`}>Follow up →</a></footer>
+	<footer><a href={backHref}>← Back</a><a href={promptHref}>Follow up →</a></footer>
 </main>
 
 <style>
