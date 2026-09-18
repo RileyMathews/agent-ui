@@ -2,9 +2,9 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
-	import type { Agent, AppAgentsResponse, Provider, ProviderListResponse, Session } from '@opencode-ai/sdk/v2/client';
+	import type { AgentInfo, ModelInfo } from '@opencode/client';
 	import { getProject, getServer, sessionHref } from '$lib/config';
-	import { getOpencode, getOpencodeV2 } from '$lib/opencode';
+	import { getOpencode } from '$lib/opencode';
 	import PromptComposer from '$lib/PromptComposer.svelte';
 	import ChatOptions from '$lib/ChatOptions.svelte';
 
@@ -16,8 +16,8 @@
 	const terminalHref = $derived(directory
 		? `/terminal?${new URLSearchParams({ directory, server: server?.id ?? '', returnTo: `${threadHref.replace(`/session/${encodeURIComponent(sessionID ?? '')}`, `/session/${encodeURIComponent(sessionID ?? '')}/prompt`)}` })}`
 		: undefined);
-	let providers = $state<Provider[]>([]);
-	let agents = $state<Agent[]>([]);
+	let models = $state<ModelInfo[]>([]);
+	let agents = $state<AgentInfo[]>([]);
 	let prompt = $state('');
 	let modelValue = $state('');
 	let agent = $state('');
@@ -38,9 +38,11 @@
 		error = null;
 		try {
 			if (!server) throw new Error('The server is missing from this session link.');
-			const opencodeV2 = getOpencodeV2(server.url);
-			const model = JSON.parse(modelValue) as { providerID: string; modelID: string };
-			await opencodeV2.session.promptAsync({ sessionID, directory, model, agent, variant: variant || undefined, parts: [{ type: 'text', text: prompt.trim() }] });
+			const opencode = getOpencode(server.url);
+			await opencode.session.switchAgent({ sessionID, agent });
+			const selected = JSON.parse(modelValue) as { providerID: string; modelID: string };
+			await opencode.session.switchModel({ sessionID, model: { id: selected.modelID, providerID: selected.providerID, variant: variant || undefined } });
+			await opencode.session.prompt({ sessionID, text: prompt.trim() });
 			await goto(threadHref);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to send the follow-up.';
@@ -59,28 +61,24 @@
 		error = null;
 		try {
 			const opencode = getOpencode(server.url);
-			const opencodeV2 = getOpencodeV2(server.url);
-			const session = (await opencode.session.get({ path: { id: sessionID }, query: { directory: project.directory } })) as unknown as { directory: string };
-			directory = session.directory;
-			const [providerResponse, agentResponse, sessionOptions] = await Promise.all([
-				opencodeV2.provider.list({ directory }) as unknown as Promise<ProviderListResponse>,
-				opencodeV2.app.agents({ directory }) as unknown as Promise<AppAgentsResponse>,
-				opencodeV2.session.get({ sessionID, directory }) as unknown as Promise<Session>
+			const session = await opencode.session.get({ sessionID });
+			directory = session.location.directory;
+			const [modelResponse, agentResponse] = await Promise.all([
+				opencode.model.list({ location: { directory } }),
+				opencode.agent.list({ location: { directory } })
 			]);
 			if (activeRequest !== optionsRequest) return;
-			const connected = new Set(providerResponse.connected);
-			providers = providerResponse.all.filter((provider) => connected.has(provider.id) && Object.keys(provider.models).length > 0);
-			agents = agentResponse.filter((candidate) => !candidate.hidden && (candidate.mode === 'primary' || candidate.mode === 'all'));
-			const selectedModel = sessionOptions.model && providers.some((provider) => provider.id === sessionOptions.model?.providerID && provider.models[sessionOptions.model.id]) ? sessionOptions.model : undefined;
-			const provider = providers[0];
-			const fallbackModelID = providerResponse.default[provider?.id ?? ''] ?? Object.keys(provider?.models ?? {})[0];
+			models = modelResponse.data.filter((model) => model.enabled);
+			agents = agentResponse.data.filter((candidate) => !candidate.hidden && (candidate.mode === 'primary' || candidate.mode === 'all'));
+			const selectedModel = session.model && models.some((model) => model.providerID === session.model?.providerID && model.modelID === session.model.id) ? session.model : undefined;
+			const fallbackModel = models[0];
 			if (selectedModel) {
 				modelValue = modelOptionValue(selectedModel.providerID, selectedModel.id);
-				const model = providers.find((provider) => provider.id === selectedModel.providerID)?.models[selectedModel.id];
-				variant = selectedModel.variant && model?.variants?.[selectedModel.variant] ? selectedModel.variant : '';
-			} else if (provider && fallbackModelID) modelValue = modelOptionValue(provider.id, fallbackModelID);
-			agent = agents.some((candidate) => candidate.name === sessionOptions.agent) ? sessionOptions.agent ?? '' : agents.find((candidate) => candidate.name === 'build')?.name ?? agents[0]?.name ?? '';
-			if (providers.length === 0) error = 'No connected providers with models are available.';
+				const model = models.find((model) => model.providerID === selectedModel.providerID && model.modelID === selectedModel.id);
+				variant = selectedModel.variant && model?.variants.some((item) => item.id === selectedModel.variant) ? selectedModel.variant : '';
+			} else if (fallbackModel) modelValue = modelOptionValue(fallbackModel.providerID, fallbackModel.modelID);
+			agent = agents.some((candidate) => candidate.id === session.agent) ? session.agent ?? '' : agents.find((candidate) => candidate.id === 'build')?.id ?? agents[0]?.id ?? '';
+			if (models.length === 0) error = 'No connected providers with models are available.';
 			else if (agents.length === 0) error = 'No chat agents are available.';
 		} catch (cause) {
 			if (activeRequest === optionsRequest) error = cause instanceof Error ? cause.message : 'Unable to load chat options.';
@@ -115,7 +113,7 @@
 		<p class="status">Loading models and agents...</p>
 	{:else}
 		<PromptComposer bind:value={prompt} onsubmit={submit} label="Follow-up prompt" placeholder="Ask a follow-up..." rows={7} fullPage disabled={submitting || !directory} submitDisabled={!modelValue || !agent} submitLabel={submitting ? 'Sending...' : 'Send follow-up'} {error} {terminalHref}>
-			<ChatOptions {providers} {agents} bind:modelValue bind:agent bind:variant disabled={submitting} />
+			<ChatOptions {models} {agents} bind:modelValue bind:agent bind:variant disabled={submitting} />
 		</PromptComposer>
 	{/if}
 </main>

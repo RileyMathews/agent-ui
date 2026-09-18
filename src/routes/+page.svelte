@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import type { Server } from '$lib/config';
 	import { projects, servers, sessionHref } from '$lib/config';
-	import { getOpencodeV2 } from '$lib/opencode';
 	import { isReady, isWorking, loadInParallel, loadProjectServer, type ProjectServerState, type ServerLoad } from '$lib/sessions';
 
 	type ProjectState = {
@@ -62,44 +61,7 @@
 	}
 
 	async function archiveSelected() {
-		if (archiving) return;
-		const items = currentSessions.filter((item) => selected.has(sessionKey(item)));
-		if (items.length === 0) return;
-
-		archiving = true;
-		archiveError = '';
-		const archived = Date.now();
-		const results = await Promise.allSettled(items.map((item) =>
-			getOpencodeV2(item.state.server.url).session.update({
-				sessionID: item.session.id,
-				directory: item.project.directory,
-				time: { archived }
-			})
-		));
-		const succeeded = new Set(items.filter((_, index) => results[index].status === 'fulfilled').map(sessionKey));
-
-		projectsState = Object.fromEntries(Object.entries(projectsState).map(([projectID, projectState]) => [
-			projectID,
-			{
-				servers: projectState.servers.map((load) =>
-					isReady(load)
-						? {
-								...load,
-								value: {
-									...load.value,
-									sessions: load.value.sessions.map((session) => succeeded.has(`${projectID}:${load.value.server.id}:${session.id}`)
-										? { ...session, time: { ...session.time, archived } }
-										: session)
-								}
-							}
-						: load
-				)
-			}
-		]));
-		selected = new Set([...selected].filter((key) => !succeeded.has(key)));
-		const failed = results.length - succeeded.size;
-		if (failed > 0) archiveError = `${failed} ${failed === 1 ? 'session' : 'sessions'} could not be archived. Try again.`;
-		archiving = false;
+		archiveError = 'OpenCode V2 does not currently expose an archive operation.';
 	}
 
 	function activeCount(projectID: string) {

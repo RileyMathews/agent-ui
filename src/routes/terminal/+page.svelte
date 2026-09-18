@@ -2,10 +2,10 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
-	import type { Pty } from '@opencode-ai/sdk/v2/client';
+	import type { Pty } from '@opencode/client';
 	import Terminal from '$lib/Terminal.svelte';
 	import { getServer } from '$lib/config';
-	import { getOpencodeV2 } from '$lib/opencode';
+	import { getOpencode } from '$lib/opencode';
 
 	type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'offline' | 'exited' | 'error';
 
@@ -35,7 +35,7 @@
 		if (!pty || removed) return;
 		removed = true;
 		if (!server) return;
-		await getOpencodeV2(server.url).v2.pty.remove({
+		await getOpencode(server.url).pty.remove({
 			ptyID: pty.id,
 			location: { directory: directory ?? undefined }
 		}).catch(() => undefined);
@@ -55,23 +55,22 @@
 			detail = 'No server was selected';
 			return undefined;
 		}
-		const opencodeV2 = getOpencodeV2(server.url);
+		const opencode = getOpencode(server.url);
 		if (!directory) {
 			connectionState = 'error';
 			detail = 'No directory was selected';
 			return undefined;
 		}
 
-		void opencodeV2.v2.pty.create({
+		void opencode.pty.create({
 			location: { directory },
 			title: 'Agent UI terminal'
 		}).then((response) => {
 			if (disposed) {
-				const created = response as unknown as { data: Pty };
-				void opencodeV2.v2.pty.remove({ ptyID: created.data.id, location: { directory } }).catch(() => undefined);
+				void opencode.pty.remove({ ptyID: response.data.id, location: { directory } }).catch(() => undefined);
 				return;
 			}
-			pty = (response as unknown as { data: Pty }).data;
+			pty = response.data;
 		}).catch((cause) => {
 			if (disposed) return;
 			connectionState = 'error';

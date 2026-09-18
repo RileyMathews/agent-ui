@@ -3,9 +3,9 @@
 	import { page } from '$app/state';
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
-	import type { Agent, AppAgentsResponse, Provider, ProviderListResponse, Session } from '@opencode-ai/sdk/v2/client';
+	import type { AgentInfo, ModelInfo } from '@opencode/client';
 	import { getProject, getServer, sessionHref } from '$lib/config';
-	import { getOpencodeV2 } from '$lib/opencode';
+	import { getOpencode } from '$lib/opencode';
 	import { checkProject } from '$lib/sessions';
 	import PromptComposer from '$lib/PromptComposer.svelte';
 	import ChatOptions from '$lib/ChatOptions.svelte';
@@ -26,8 +26,8 @@
 	const terminalHref = $derived(checkoutAvailable && directory && project && server
 		? `/terminal?${new URLSearchParams({ directory, server: server.id, returnTo: `/new/chat?${new URLSearchParams({ project: project.id, server: server.id })}` })}`
 		: undefined);
-	let providers = $state<Provider[]>([]);
-	let agents = $state<Agent[]>([]);
+	let models = $state<ModelInfo[]>([]);
+	let agents = $state<AgentInfo[]>([]);
 	let prompt = $state('');
 	let modelValue = $state('');
 	let agent = $state('');
@@ -41,11 +41,9 @@
 		return JSON.stringify({ providerID, modelID });
 	}
 
-	function defaultModel(defaults: Record<string, string>) {
-		const provider = providers[0];
-		if (!provider) return;
-		const modelID = defaults[provider.id] ?? Object.keys(provider.models)[0];
-		if (modelID) modelValue = modelOptionValue(provider.id, modelID);
+	function defaultModel() {
+		const model = models.find((candidate) => candidate.enabled);
+		if (model) modelValue = modelOptionValue(model.providerID, model.modelID);
 	}
 
 	function readPreferences() {
@@ -59,18 +57,18 @@
 		}
 	}
 
-	function selectInitialOptions(defaults: Record<string, string>) {
+	function selectInitialOptions() {
 		const preferences = readPreferences();
 		const preferredModel = preferences
-			? providers.find((provider) => provider.id === preferences.providerID)?.models[preferences.modelID]
+			? models.find((model) => model.providerID === preferences.providerID && model.modelID === preferences.modelID)
 			: undefined;
 		if (preferences && preferredModel) modelValue = modelOptionValue(preferences.providerID, preferences.modelID);
-		else defaultModel(defaults);
+		else defaultModel();
 
-		agent = preferences && agents.some((candidate) => candidate.name === preferences.agent)
+		agent = preferences && agents.some((candidate) => candidate.id === preferences.agent)
 			? preferences.agent
-			: agents.find((candidate) => candidate.name === 'build')?.name ?? agents[0]?.name ?? '';
-		variant = preferences?.variant && preferredModel?.variants?.[preferences.variant]
+			: agents.find((candidate) => candidate.id === 'build')?.id ?? agents[0]?.id ?? '';
+		variant = preferences?.variant && preferredModel?.variants.some((candidate) => candidate.id === preferences.variant)
 			? preferences.variant
 			: '';
 	}
@@ -92,29 +90,26 @@
 		error = null;
 
 		try {
-			const opencodeV2 = getOpencodeV2(server.url);
-			const model = JSON.parse(modelValue) as { providerID: string; modelID: string };
-			const session = (await opencodeV2.session.create({
-				directory,
+			const opencode = getOpencode(server.url);
+			const selectedModel = JSON.parse(modelValue) as { providerID: string; modelID: string };
+			const model = { id: selectedModel.modelID, providerID: selectedModel.providerID, variant: variant || undefined };
+			const session = await opencode.session.create({
+				location: { directory },
 				agent,
-				model: { id: model.modelID, providerID: model.providerID, variant: variant || undefined }
-			})) as unknown as Session;
+				model
+			});
 
 			try {
-				await opencodeV2.session.promptAsync({
+				await opencode.session.prompt({
 					sessionID: session.id,
-					directory,
-					agent,
-					model,
-					variant: variant || undefined,
-					parts: [{ type: 'text', text: prompt.trim() }]
+					text: prompt.trim()
 				});
 			} catch (cause) {
-				await opencodeV2.session.delete({ sessionID: session.id, directory }).catch(() => undefined);
+				await opencode.session.remove({ sessionID: session.id }).catch(() => undefined);
 				throw cause;
 			}
 
-			savePreferences(model);
+			savePreferences(selectedModel);
 			await goto(sessionHref(session.id, server.id, project.id));
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to start the thread.';
@@ -137,22 +132,19 @@
 				throw new Error(availability.error ? 'The selected server is unreachable.' : `The project is not checked out at ${directory}.`);
 			}
 			checkoutAvailable = true;
-			const opencodeV2 = getOpencodeV2(server.url);
-			const [providerResponse, agentResponse] = await Promise.all([
-				opencodeV2.provider.list({ directory }) as unknown as Promise<ProviderListResponse>,
-				opencodeV2.app.agents({ directory }) as unknown as Promise<AppAgentsResponse>
+			const opencode = getOpencode(server.url);
+			const [modelResponse, agentResponse] = await Promise.all([
+				opencode.model.list({ location: { directory } }),
+				opencode.agent.list({ location: { directory } })
 			]);
-			const connected = new Set(providerResponse.connected);
 			if (activeRequest !== optionsRequest) return;
-			providers = providerResponse.all.filter(
-				(provider) => connected.has(provider.id) && Object.keys(provider.models).length > 0
-			);
-			agents = agentResponse.filter(
+			models = modelResponse.data.filter((model) => model.enabled);
+			agents = agentResponse.data.filter(
 				(candidate) => !candidate.hidden && (candidate.mode === 'primary' || candidate.mode === 'all')
 			);
 
-			selectInitialOptions(providerResponse.default);
-			if (providers.length === 0) error = 'No connected providers with models are available.';
+			selectInitialOptions();
+			if (models.length === 0) error = 'No connected providers with models are available.';
 			else if (agents.length === 0) error = 'No chat agents are available.';
 		} catch (cause) {
 			if (activeRequest === optionsRequest) error = cause instanceof Error ? cause.message : 'Unable to load chat options.';
@@ -208,7 +200,7 @@
 			{error}
 			{terminalHref}
 		>
-			<ChatOptions {providers} {agents} bind:modelValue bind:agent bind:variant disabled={submitting} />
+			<ChatOptions {models} {agents} bind:modelValue bind:agent bind:variant disabled={submitting} />
 		</PromptComposer>
 	{/if}
 </main>
